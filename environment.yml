@@ -1,0 +1,12 @@
+name: base
+channels:
+  - defaults
+dependencies:
+  - conda
+  - python=3.7
+  - numpy
+  - pandas
+  - matplotlib
+  - xrootd
+prefix: /home/ucl/cp3/jpriscia/miniconda3
+
