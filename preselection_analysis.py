@@ -24,7 +24,7 @@ parser = ArgumentParser()
 parser.add_argument('jobid', default='2018_preskim', help='jobid to run on')
 parser.add_argument('-d', '--debug', action='store_true', help='run in local mode')
 parser.add_argument('-t', '--test', help='test on a single file')
-parser.add_argument('-T', '--tag', help='test on a single file')
+parser.add_argument('-T', '--tag', default='', help='add custon tag in output name')
 parser.add_argument('-l', '--limit', default='*', help='limit to specific datasets')
 parser.add_argument('-j', '--jobs', type=int, default=1, help='How many processes to run (available only with -d)')
 args = parser.parse_args()
@@ -57,6 +57,9 @@ print('processing samples: ', fileset.keys())
 # Look at ProcessorABC documentation to see the expected methods and what they are supposed to do
 class SkimPlot(processor.ProcessorABC):
     def __init__(self, jobid):
+        # store jobid for steering cuts
+        self.jobid = jobid
+        
         ## Scale Factors
         extractor = lookup_tools.extractor()
         extractor.add_weight_sets([f"pu_ * inputs/{jobid}/pu.root"]) 
@@ -68,6 +71,8 @@ class SkimPlot(processor.ProcessorABC):
         mass_axis = hist.Bin("mass", r"m [GeV]", 40, 0, 200)
         pt_axis = hist.Bin("pt", r"$p_{T}$ [GeV]", 40, 0, 200)
         dr_axis = hist.Bin("dr", r"$\Delta R$", 40, 0, 8)
+        dr_axis_small = hist.Bin("dr", r"$\Delta R$", 40, 0.5, 5)
+        mass_axis_small = hist.Bin("mass", r"m [GeV]", 40, 15, 90)
 
         self._accumulator = processor.dict_accumulator({
             'cutflow' : processor.defaultdict_accumulator(float),
@@ -75,11 +80,29 @@ class SkimPlot(processor.ProcessorABC):
             # 'preselection_diplaced_pt' : hist.Hist('diplaced_pt', sample_axis, pt_axis),
             # 'preselection_di_mu_M'     : hist.Hist('di_mu_M'    , sample_axis, mass_axis),
             # 'preselection_di_mu_DR'    : hist.Hist('di_mu_DR'   , sample_axis, dr_axis),
-            'preselection' : processor.dict_accumulator({
+            'preselection_SS' : processor.dict_accumulator({
                 'prompt_pt'   : hist.Hist('prompt_pt'  , sample_axis, pt_axis),
                 'diplaced_pt' : hist.Hist('diplaced_pt', sample_axis, pt_axis),
                 'di_mu_M'     : hist.Hist('di_mu_M'    , sample_axis, mass_axis),
                 'di_mu_DR'    : hist.Hist('di_mu_DR'   , sample_axis, dr_axis),
+            }),
+            'preselection_OS' : processor.dict_accumulator({
+                'prompt_pt'   : hist.Hist('prompt_pt'  , sample_axis, pt_axis),
+                'diplaced_pt' : hist.Hist('diplaced_pt', sample_axis, pt_axis),
+                'di_mu_M'     : hist.Hist('di_mu_M'    , sample_axis, mass_axis),
+                'di_mu_DR'    : hist.Hist('di_mu_DR'   , sample_axis, dr_axis),
+            }),
+            'selection_SS' : processor.dict_accumulator({
+                'prompt_pt'   : hist.Hist('prompt_pt'  , sample_axis, pt_axis),
+                'diplaced_pt' : hist.Hist('diplaced_pt', sample_axis, pt_axis),
+                'di_mu_M'     : hist.Hist('di_mu_M'    , sample_axis, mass_axis_small),
+                'di_mu_DR'    : hist.Hist('di_mu_DR'   , sample_axis, dr_axis_small),
+            }),
+            'selection_OS' : processor.dict_accumulator({
+                'prompt_pt'   : hist.Hist('prompt_pt'  , sample_axis, pt_axis),
+                'diplaced_pt' : hist.Hist('diplaced_pt', sample_axis, pt_axis),
+                'di_mu_M'     : hist.Hist('di_mu_M'    , sample_axis, mass_axis_small),
+                'di_mu_DR'    : hist.Hist('di_mu_DR'   , sample_axis, dr_axis_small),
             }),
         })
     
@@ -105,9 +128,15 @@ class SkimPlot(processor.ProcessorABC):
         if sample_name.startswith('Single'):
             df['weight'] = np.ones(df.shape[0])
         else:
-            central = self.weights_lookup['pu_data'](df['pu_trueInteraction']) / self.weights_lookup['pu_mc'](df['pu_trueInteraction'])
-            up = self.weights_lookup['pu_data_up'](df['pu_trueInteraction']) / self.weights_lookup['pu_mc'](df['pu_trueInteraction'])
-            down = self.weights_lookup['pu_data_down'](df['pu_trueInteraction']) / self.weights_lookup['pu_mc'](df['pu_trueInteraction'])
+            key = f'pu_{sample_name}'
+            if key not in self.weights_lookup:
+                key = 'pu_mc'
+            if key not in self.weights_lookup:
+                print('Probably this is just a test, assigning a random PU weight')
+                key = list(self.weights_lookup.keys())[0]
+            central = self.weights_lookup['pu_data'](df['pu_trueInteraction']) / self.weights_lookup[key](df['pu_trueInteraction'])
+            up = self.weights_lookup['pu_data_up'](df['pu_trueInteraction']) / self.weights_lookup[key](df['pu_trueInteraction'])
+            down = self.weights_lookup['pu_data_down'](df['pu_trueInteraction']) / self.weights_lookup[key](df['pu_trueInteraction'])
             df['weight'] = central
             df['pileup_up'] = up / central
             df['pileup_down'] = down / central
@@ -120,7 +149,8 @@ class SkimPlot(processor.ProcessorABC):
         prompt_mu_mask = (df.muons.p4.pt > 25) & (np.abs(df.muons.p4.eta) < 2.5) & (df.muons.dbIso < 0.15) & df.muons.isTight
         all_prompt_mus = df['muons'][prompt_mu_mask]
         df['prompt_mu'] = all_prompt_mus[:,:1] # pick only the first one
-        trig_and_prompt = df['passIsoMu24'] & (all_prompt_mus.counts > 0) 
+        trig_to_use = 'passIsoMu27All' if '2017' in self.jobid else 'passIsoMu24'
+        trig_and_prompt = df[trig_to_use] & (all_prompt_mus.counts > 0) 
         accumulator['cutflow'][f'{sample_name}_trigg&promptMu'] += trig_and_prompt.sum()
         
         # Get trailing muon, here we need some gym due to broadcasting issues
@@ -154,34 +184,47 @@ class SkimPlot(processor.ProcessorABC):
         skim['ll_dr'] = skim.prompt_mu.p4.delta_r(skim.second_mu.p4)
         
         # make preslection cut
-        selection = (skim.prompt_mu.absdxy < 0.005) & (skim.prompt_mu.absdz < 0.1) & \
+        preselection_mask = (skim.prompt_mu.absdxy < 0.005) & (skim.prompt_mu.absdz < 0.1) & \
                     (skim.second_mu.absdxy > 0.02) & \
                     (40 < skim.m1_vtx_mass) & (skim.m1_vtx_mass < 90) & \
-                    (20 < skim.ll_mass) & (skim.ll_mass < 85) & \
-                    (1 < skim.ll_dr) & (skim.ll_dr < 5) & \
-                    (skim.jet_pt.max() > 20)
-                    
+                    (0.3 < skim.ll_dr)                
 
-        preselection = skim[selection]
+        preselection = skim[preselection_mask]
+        
+        selection_mask = (20 < preselection.ll_mass) & (preselection.ll_mass < 85) & \
+                        (1 < preselection.ll_dr) & (preselection.ll_dr < 5) & \
+                        (preselection.jet_pt.max() > 20)
+
+        same_sign = (preselection.prompt_mu.charge * preselection.second_mu.charge) >0.
+        opp_sign = (preselection.prompt_mu.charge * preselection.second_mu.charge) <0.
+
         accumulator['cutflow'][f'{sample_name}_preselection'] += preselection.shape[0]
-        print(preselection.shape[0], preselection['weight'].sum())
+        #print(preselection.shape[0], preselection['weight'].sum())
         # fill preselection histograms
-        accumulator['preselection']['prompt_pt'  ].fill(
-            weight = preselection['weight'], sample = sample_name, 
-            pt = utils.tonp(preselection.prompt_mu.p4.pt)
-        )
-        accumulator['preselection']['diplaced_pt'].fill(
-            weight = preselection['weight'], sample = sample_name, 
-            pt = utils.tonp(preselection.second_mu.p4.pt)
-        )
-        accumulator['preselection']['di_mu_M'    ].fill(
-            weight = preselection['weight'], sample = sample_name, 
-            mass = utils.tonp(preselection['ll_mass'])
-        )
-        accumulator['preselection']['di_mu_DR'   ].fill(
-            weight = preselection['weight'], sample = sample_name, 
-            dr = utils.tonp(preselection.ll_dr)
-        )
+
+        for category, mask in [
+            ('preselection_SS', same_sign),
+            ('preselection_OS', opp_sign),
+            ('selection_SS', selection_mask & same_sign),
+            ('selection_OS', selection_mask & opp_sign),]:
+
+            masked_df = preselection[mask]
+            accumulator[category]['prompt_pt'  ].fill(
+                weight = masked_df['weight'], sample = sample_name, 
+                pt = utils.tonp(masked_df.prompt_mu.p4.pt)
+            )
+            accumulator[category]['diplaced_pt'].fill(
+                weight = masked_df['weight'], sample = sample_name, 
+                pt = utils.tonp(masked_df.second_mu.p4.pt)
+            )
+            accumulator[category]['di_mu_M'    ].fill(
+                weight = masked_df['weight'], sample = sample_name, 
+                mass = utils.tonp(masked_df['ll_mass'])
+            )
+            accumulator[category]['di_mu_DR'   ].fill(
+                weight = masked_df['weight'], sample = sample_name, 
+                dr = utils.tonp(masked_df.ll_dr)
+            )
         
         return accumulator
 
