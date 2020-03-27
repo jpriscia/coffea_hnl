@@ -44,8 +44,8 @@ def ensure_xrootd(files):
     elif isinstance(files, list):
         return list(map(ensure_xrootd, files))
     elif isinstance(files, str):
-        rval = files.replace('/storage/data/cms/', 'root://ingrid-se03.cism.ucl.ac.be/')
-        if not rval.startswith('root://ingrid-se03'):
+        rval = files.replace('/storage/data/cms/', 'root://ingrid-se03.cism.ucl.ac.be//')
+        if not rval.startswith('root://ingrid-se03') and rval.startswith('/'):
             raise RuntimeError(f'The file {rval} is not a xrootd path!')
         return rval
     else:
@@ -58,10 +58,21 @@ def lineno():
 
 import yaml
 import json
+from collections import defaultdict
 def compute_weights(mc_meta, target_lumi, xsec):
     doc  = yaml.load(open(xsec))
     meta = json.load(open(mc_meta))
+    processed = defaultdict(float)
     ret = {}
     for key in meta:
-        ret[key] = target_lumi * doc['samples'][key]['xsec'] / float(meta[key])
+        normed_key = key.replace('_ext', '')
+        if normed_key != key and \
+           doc['samples'][key]['xsec'] != doc['samples'][normed_key]['xsec']:
+            raise RuntimeError('The cross section of the extension {key} differs from the base sample {normed_key}')
+        processed[normed_key] += meta[key]
+
+    for key in meta:
+        normed_key = key.replace('_ext', '')
+        ret[key] = target_lumi * doc['samples'][key]['xsec'] / processed[normed_key]
+
     return ret
