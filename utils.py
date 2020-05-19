@@ -11,6 +11,12 @@ def tonp(vv):
     else:
         return vv
 
+def index2jagged(vv):
+    '''convert an IndexedMaskedArray (jagged)
+    to a JaggedArray. It assumes Jaggeddness and 
+    no checks are made, potentially dangerous'''
+    return awkward.JaggedArray.fromcounts(vv.count(), tonp(vv))
+
 def delta_r(eta1, phi1, eta2, phi2):
     'computed the DR'
     detas = np.abs(eta1 - eta2)
@@ -73,6 +79,9 @@ def compute_weights(mc_meta, target_lumi, xsec):
 
     for key in meta:
         normed_key = key.replace('_ext', '')
+        #try:
         ret[key] = target_lumi * doc['samples'][key]['xsec'] / processed[normed_key]
+        #except:
+        #    set_trace()
 
     return ret

@@ -71,6 +71,7 @@ output = processor.run_uproot_job(
 )
 print('DONE!')
 print(output)
+set_trace()
 
 import json
 for key in fileset:

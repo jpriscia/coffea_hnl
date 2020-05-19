@@ -4,6 +4,8 @@ from coffea import hist as cofplt
 from coffea.util import load
 from argparse import ArgumentParser
 import matplotlib
+from pdb import set_trace
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 plt.rcParams.update({
@@ -21,11 +23,14 @@ from pdb import set_trace
 
 parser = ArgumentParser()
 parser.add_argument('jobid', default='2018_preskim', help='jobid to run on')
+parser.add_argument('--isSig' , action='store_true', help='signal or mc/data')
+#parser.add_argument
 args = parser.parse_args()
 
 hists = load(f'results/{args.jobid}/skimplot.coffea')
 if not os.path.isdir(f'plots/{args.jobid}'):
     os.makedirs(f'plots/{args.jobid}')
+
 
 years = {
     '2017' : {
@@ -34,7 +39,7 @@ years = {
     },
     '2018' : {
         'lumi' : 59.7e3,
-        'xsecx' : '/home/ucl/cp3/jpriscia/CMSSW_10_2_15_patch2/src/HNL/HeavyNeutralLeptonAnalysis/test/input_mc_2018.yml'
+        'xsecx' : '/home/ucl/cp3/jpriscia/CMSSW_10_2_15_patch2/src/HNL/HeavyNeutralLeptonAnalysis/test/input_mcAll_2018.yml'
     }
 }
 if '2017' in args.jobid:
@@ -57,12 +62,18 @@ plots = [
     ('diplaced_pt', r'p$_T$(sub-leading $\mu$) [GeV]'),
     ('di_mu_M'    , r'm($\mu\mu$) [GeV]'),
     ('di_mu_DR'   , r'$\Delta R(\mu\mu$)'),
+    ('sv_tM'      , r'sv_tm [GeV]'),
+    ('mu_tM'      , r'mu_tm [GeV]'),
+    ('musv_tM'    , r'musv_tm [GeV]'),
+    ('corr_M'     , r'corr_m [GeV]'),
 ]
 
 def matches(lst, pat, excl = set()):
     return [i for i in samples if fnmatch(i, pat) and i not in excl] 
 
 mc = re.compile(r'mc_\w+')
+sig = re.compile(r'sig_.+')
+
 for key, x_title in plots:
     for sel in ['preselection_SS','preselection_OS','selection_SS','selection_OS']:
         fig, (ax, rax) = plt.subplots(
@@ -71,7 +82,9 @@ for key, x_title in plots:
             sharex = True
         )
         fig.subplots_adjust(hspace = .07)
-    
+
+        #set_trace()
+        if key not in hists[sel]: continue
         hist = hists[sel][key]
         hist.scale(scaling, axis = 'sample')    
 
@@ -85,7 +98,14 @@ for key, x_title in plots:
         mapping['mc_wjets'] = matches(samples, 'WJets*')
         mapping['mc_qcd'] = matches(samples, 'QCD*')
         mapping['data'] = matches(samples, 'Single*')
-        
+        mapping['sig_M-10_V-0p0010'] = matches(samples,'M-10_V-0p0010*')
+        mapping['sig_M-2_V-0p015'] = matches(samples, 'M-2_V-0p015*')
+        mapping['sig_M-2_V-0p035'] = matches(samples, 'M-2_V-0p035*')
+        mapping['sig_M-4_V-0p0035'] = matches(samples, 'M-4_V-0p0035*')
+        mapping['sig_M-4_V-0p010'] = matches(samples, 'M-4_V-0p010*' )
+        mapping['sig_M-6_V-0p0028'] = matches(samples, 'M-6_V-0p0028*')
+        mapping['sig_M-8_V-0p002'] = matches(samples, 'M-8_V-0p002*')
+
         process = cofplt.Cat("process", "Process", sorting='placement')
         grouped = hist.group('sample', process, mapping)
         
@@ -96,39 +116,63 @@ for key, x_title in plots:
         grouped.axis('process').index('mc_dy').label = r'Drell-Yan' 
         grouped.axis('process').index('mc_qcd').label = r'QCD' 
         grouped.axis('process').index('data').label = r'Observed' 
-        #set_trace()
-        cofplt.plot1d(
-            grouped[mc], 
-            overlay = "process", 
-            ax = ax,
-            clear = False,
-            stack = True, 
-            line_opts = None,
-            fill_opts = styles.fill_opts,
-            error_opts = styles.error_opts
-        )
-        cofplt.plot1d(
-            grouped['data'],
-            overlay = "process",
-            ax = ax,
-            clear = False,
-            error_opts = styles.data_err_opts
-        )
-        
+        grouped.axis('process').index('sig_M-10_V-0p0010').label = r'sig_M10_V0010'
+        grouped.axis('process').index('sig_M-2_V-0p015').label = r'sig_M2_V015'
+        grouped.axis('process').index('sig_M-2_V-0p035').label = r'sig_M2_V035'
+        grouped.axis('process').index('sig_M-4_V-0p0035').label = r'sig_M4_V0035'
+        grouped.axis('process').index('sig_M-4_V-0p010').label = r'sig_M4_V010'
+        grouped.axis('process').index('sig_M-6_V-0p0028').label = r'sig_M6_V0028'
+        grouped.axis('process').index('sig_M-8_V-0p002').label = r'sig_M8_V002'
+       
+        if args.isSig:
+            cofplt.plot1d(
+                grouped[sig], 
+                overlay = "process", 
+                ax = ax,
+                clear = False,
+                stack = False, 
+                line_opts = None,
+                fill_opts = styles.fill_opts,
+                error_opts = styles.error_opts
+            )
+
+        else:       
+            cofplt.plot1d(
+                grouped[mc],
+                overlay = "process",
+                ax = ax,
+                clear = False,
+                stack = True,
+                line_opts = None,
+                fill_opts = styles.fill_opts,
+                error_opts = styles.error_opts
+            )
+             
+            cofplt.plot1d(
+                grouped['data'],
+                overlay = "process",
+                ax = ax,
+                clear = False,
+                error_opts = styles.data_err_opts
+            )
+
         ax.autoscale(axis='x', tight=True)
         ax.set_ylim(0, None)
         ax.set_xlabel(None)
         ax.set_ylabel('Counts')
         leg = ax.legend()
-        
-        cofplt.plotratio(
-            grouped['data'].sum("process"), grouped[mc].sum("process"), 
-            ax=rax,
-            error_opts=styles.data_err_opts, 
-            denom_fill_opts={},
-            guide_opts={},
-            unc='num'
-        )
+       
+        if not args.isSig:
+
+            cofplt.plotratio(
+                grouped['data'].sum("process"), grouped[mc].sum("process"), 
+                ax=rax,
+                error_opts=styles.data_err_opts, 
+                denom_fill_opts={},
+                guide_opts={},
+                unc='num'
+            )
+
         rax.set_ylabel('Ratio')
         rax.set_xlabel(x_title)
         rax.set_ylim(0,2)

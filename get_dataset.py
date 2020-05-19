@@ -8,6 +8,7 @@ from pdb import set_trace
 parser = ArgumentParser()
 parser.add_argument('jobid', help='jobid to use')
 parser.add_argument('indirs', nargs='+', help='input dirs to harvest from')
+parser.add_argument('-i', '--isSig', type=bool, default=False, help='is MC Signal')
 args = parser.parse_args()
 
 outdir = f'inputs/{args.jobid}'
@@ -16,8 +17,11 @@ if not os.path.isdir(outdir):
 
 prescaled = re.compile('.*_[0-9]$')
 for indir in args.indirs:
-    datasets = glob(f'{indir}/*/*')
-    
+    if args.isSig:
+        datasets = glob(f'{indir}/*/*/*')
+    else:
+        datasets = glob(f'{indir}/*/*')
+
     # group prescales but not extensions
     clean_datasets = set()
     for dataset in datasets:
@@ -27,8 +31,12 @@ for indir in args.indirs:
             clean_datasets.add(dataset)
     
     for dataset in clean_datasets:
-        files = glob(f'{dataset}/*/*/*.root')
-        dname = os.path.basename(dataset).replace('crab_', '').replace('_*', '')
+        if args.isSig:
+            files = glob(f'{dataset}/*.root')
+            dname = os.path.basename(dataset).replace('HeavyNeutrino_lljj_', '').replace('_massiveAndCKM_LO','')
+        else:
+            files = glob(f'{dataset}/*/*/*.root')
+            dname = os.path.basename(dataset).replace('crab_', '').replace('_*', '')
         txt = f'{outdir}/{dname}.txt'
         if os.path.isfile(txt):
             txt_files = [i for i in open(txt)]

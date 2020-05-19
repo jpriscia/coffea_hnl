@@ -15,13 +15,16 @@ import objects
 from maskedlazy import MaskedLazyDataFrame
 from coffea import hist
 from coffea import lookup_tools
-import uproot_methods
 import awkward
+import math
 from fnmatch import fnmatch
 import sys
+from functools import reduce
+from accumulators import ColumnAccumulator
 
 parser = ArgumentParser()
 parser.add_argument('jobid', default='2018_preskim', help='jobid to run on')
+
 parser.add_argument('-d', '--debug', action='store_true', help='run in local mode')
 parser.add_argument('-t', '--test', help='test on a single file')
 parser.add_argument('-T', '--tag', default='', help='add custon tag in output name')
@@ -36,6 +39,7 @@ if not os.path.isdir(basedir):
 datasets = [
     i for i in glob(f'{basedir}/*.txt') 
 ]
+
 limits = args.limit.split(',')
 
 fileset = {
@@ -48,6 +52,7 @@ fileset = {
     if any(fnmatch(i, k) for k in limits)
 }
 
+
 if args.test:
     key = 'SingleMuonTEST' if 'SingleMuon' in args.test else 'TEST'
     vals = [args.test] if args.test.endswith('.root') else [line.strip() for line in open(args.test)]
@@ -56,7 +61,7 @@ print('processing samples: ', fileset.keys())
 
 # Look at ProcessorABC documentation to see the expected methods and what they are supposed to do
 class SkimPlot(processor.ProcessorABC):
-    def __init__(self, jobid):
+    def __init__(self, jobid, samples):
         # store jobid for steering cuts
         self.jobid = jobid
         
@@ -76,6 +81,12 @@ class SkimPlot(processor.ProcessorABC):
 
         self._accumulator = processor.dict_accumulator({
             'cutflow' : processor.defaultdict_accumulator(float),
+            'columns' : processor.dict_accumulator({
+                i : processor.dict_accumulator({
+                    'mu2_absdxy' : ColumnAccumulator(np.float32)
+                })
+                for i in samples
+            }),
             # 'preselection_prompt_pt'   : hist.Hist('prompt_pt'  , sample_axis, pt_axis),
             # 'preselection_diplaced_pt' : hist.Hist('diplaced_pt', sample_axis, pt_axis),
             # 'preselection_di_mu_M'     : hist.Hist('di_mu_M'    , sample_axis, mass_axis),
@@ -85,12 +96,21 @@ class SkimPlot(processor.ProcessorABC):
                 'diplaced_pt' : hist.Hist('diplaced_pt', sample_axis, pt_axis),
                 'di_mu_M'     : hist.Hist('di_mu_M'    , sample_axis, mass_axis),
                 'di_mu_DR'    : hist.Hist('di_mu_DR'   , sample_axis, dr_axis),
+                'sv_tM'       : hist.Hist('sv_tM'   , sample_axis, mass_axis),
+                'mu_tM'       : hist.Hist('mu_tM'   , sample_axis, mass_axis),
+                'musv_tM'     : hist.Hist('musv_tM'   , sample_axis, mass_axis),
+                'corr_M'      : hist.Hist('corr_M'   , sample_axis, mass_axis),
+
             }),
             'preselection_OS' : processor.dict_accumulator({
                 'prompt_pt'   : hist.Hist('prompt_pt'  , sample_axis, pt_axis),
                 'diplaced_pt' : hist.Hist('diplaced_pt', sample_axis, pt_axis),
                 'di_mu_M'     : hist.Hist('di_mu_M'    , sample_axis, mass_axis),
                 'di_mu_DR'    : hist.Hist('di_mu_DR'   , sample_axis, dr_axis),
+                'sv_tM'       : hist.Hist('sv_tM'   , sample_axis, mass_axis),
+                'mu_tM'       : hist.Hist('mu_tM'   , sample_axis, mass_axis),
+                'musv_tM'     : hist.Hist('musv_tM'   , sample_axis, mass_axis),
+                'corr_M'      : hist.Hist('corr_M'   , sample_axis, mass_axis),
             }),
             'selection_SS' : processor.dict_accumulator({
                 'prompt_pt'   : hist.Hist('prompt_pt'  , sample_axis, pt_axis),
@@ -144,7 +164,8 @@ class SkimPlot(processor.ProcessorABC):
         # Make objects (electrons, muons, jets, SVs...) here
         df['muons'] = objects.make_muons(df)
         df['svs'] = objects.make_svs(df)
-        
+        df['jets'] = objects.make_jets(df)
+
         # Get prompt muon and select events
         prompt_mu_mask = (df.muons.p4.pt > 25) & (np.abs(df.muons.p4.eta) < 2.5) & (df.muons.dbIso < 0.15) & df.muons.isTight
         all_prompt_mus = df['muons'][prompt_mu_mask]
@@ -167,33 +188,90 @@ class SkimPlot(processor.ProcessorABC):
                       df['svs']
 
         # make skimming and attach trailing mu and sv
-        presel = trig_and_prompt & (all_displ_mu.counts > 0) & (good_svs.counts > 0) & (df.jet_pt.counts > 0)
+        presel = trig_and_prompt & (all_displ_mu.counts > 0) & (good_svs.counts > 0) 
         df['second_mu'] = all_displ_mu[:,:1]
         df['goodsv'] = good_svs[:,:1]
         skim = df[presel]
         accumulator['cutflow'][f'{sample_name}_skimming'] += presel.sum()
-        
+
         # flatten objects to avoid messing around
         skim['prompt_mu'] = skim['prompt_mu'].flatten()
         skim['second_mu'] = skim['second_mu'].flatten()
         skim['goodsv'] = skim['goodsv'].flatten()
 
+        # select and match jet to the second muon
+        jets = skim['jets'] # just a shortcut to avoid writing it constantly
+        # jet ID selection by bins, useful given that muons are only up to 2.4? 
+        selection_eta_bins = [
+            # |eta| < 2.4
+            (np.abs(jets.p4.eta) <= 2.4) & \
+            (jets.charHadEnFrac > 0.) & (jets.chargedMult > 0) & (jets.charEmEnFrac <= 0.99),
+            # |eta| < 2.7
+            (np.abs(jets.p4.eta) <= 2.7) & (jets.neutHadEnFrac <= 0.9) & \
+            (jets.neutEmEnFrac <= 0.90) & ((jets.chargedMult + jets.neutMult) >= 1),
+            # |eta| < 3.0
+            (np.abs(jets.p4.eta) <= 2.7) & (jets.neutHadEnFrac <= 0.98) & \
+            (jets.neutEmEnFrac <= 0.01) & (jets.neutMult >= 2),
+            # any eta \_(-.-)_/
+            (jets.neutEmEnFrac <= 0.9) & (jets.neutMult >= 10),
+        ]
+        # compute the or of the masks
+        jet_id = reduce(lambda x, y: x | y, selection_eta_bins)
+        
+        # compute DR w.r.t. the prompt and second muon
+        dr_promt  = utils.tonp( 
+            skim['prompt_mu'].p4.delta_r(jets.p4) 
+        )
+        dr_second = utils.tonp( 
+            skim['second_mu'].p4.delta_r(jets.p4) 
+        )
+        
+        selection = (dr_promt >= 0.4) & (dr_second <= 0.7) & \
+                    (jets.p4.pt > 20) & jet_id
+        
+        selected_jets = jets[selection]
+        selected_dr_second = dr_second[selection]
+        
+        # pick the closest jet, keep jaggedness to avoid 
+        # messing up skim. This BADLY needs awkward v2.0
+        # to fix this mess
+        min_dr = selected_dr_second.argmin()
+        skim['matched_jet'] = selected_jets[min_dr]
+        at_least_one_jet = (selected_dr_second.count() > 0)
+
         # make preselection variables and cuts
         skim['m1_vtx_mass'] = (skim.prompt_mu.p4 + skim.goodsv.p4).mass
         skim['ll_mass'] = (skim.prompt_mu.p4 + skim.second_mu.p4).mass
         skim['ll_dr'] = skim.prompt_mu.p4.delta_r(skim.second_mu.p4)
+
+        #transverse mass
+        skim['tmass_goodsv'] = np.sqrt(pow(skim.goodsv.p4.pt  + skim.pfMet_pt,2) - \
+                                       pow(skim.goodsv.p4.x + skim.pfMet_px,2) - \
+                                       pow(skim.goodsv.p4.y + skim.pfMet_py,2))
+        skim['tmass_promptmu'] = np.sqrt(pow(skim.prompt_mu.p4.pt  + skim.pfMet_pt,2) - \
+                                         pow(skim.prompt_mu.p4.x + skim.pfMet_px,2) - \
+                                         pow(skim.prompt_mu.p4.y + skim.pfMet_py,2))
+        svPlusmu_p4 = skim.goodsv.p4 + skim.prompt_mu.p4
+        skim['tmass_svmu'] = np.sqrt(pow(svPlusmu_p4.pt  + skim.pfMet_pt,2) - \
+                                     pow(svPlusmu_p4.x + skim.pfMet_px,2) - \
+                                     pow(svPlusmu_p4.y + skim.pfMet_py,2))
         
+        goodsv_pt2 = (skim.goodsv.position.cross(skim.goodsv.p3).mag2)/(skim.goodsv.position.mag2)
+        skim['mass_corr'] = np.sqrt(skim.goodsv.p4.mass * skim.goodsv.p4.mass + goodsv_pt2) + \
+                            np.sqrt(goodsv_pt2)
+
         # make preslection cut
         preselection_mask = (skim.prompt_mu.absdxy < 0.005) & (skim.prompt_mu.absdz < 0.1) & \
                     (skim.second_mu.absdxy > 0.02) & \
                     (40 < skim.m1_vtx_mass) & (skim.m1_vtx_mass < 90) & \
-                    (0.3 < skim.ll_dr)                
+                    (0.3 < skim.ll_dr) & at_least_one_jet
 
         preselection = skim[preselection_mask]
+        preselection['matched_jet'] = preselection['matched_jet'].flatten()
         
         selection_mask = (20 < preselection.ll_mass) & (preselection.ll_mass < 85) & \
                         (1 < preselection.ll_dr) & (preselection.ll_dr < 5) & \
-                        (preselection.jet_pt.max() > 20)
+                        (preselection.jet_pt.counts > 0) & (preselection.jet_pt.max() > 20)
 
         same_sign = (preselection.prompt_mu.charge * preselection.second_mu.charge) >0.
         opp_sign = (preselection.prompt_mu.charge * preselection.second_mu.charge) <0.
@@ -225,6 +303,32 @@ class SkimPlot(processor.ProcessorABC):
                 weight = masked_df['weight'], sample = sample_name, 
                 dr = utils.tonp(masked_df.ll_dr)
             )
+
+            if category.startswith('selection'):
+                accumulator['columns'][sample_name]['mu2_absdxy'] += utils.tonp(masked_df['second_mu']['absdxy'])
+
+            if category == 'preselection_SS' or category == 'preselection_OS':
+                
+                accumulator[category]['sv_tM'].fill(
+                    weight = masked_df['weight'], sample = sample_name,
+                    mass = utils.tonp(masked_df.tmass_goodsv)
+                )
+
+                accumulator[category]['mu_tM'].fill(
+                    weight = masked_df['weight'], sample = sample_name,
+                    mass = utils.tonp(masked_df.tmass_promptmu)
+                )
+
+                accumulator[category]['musv_tM'].fill(
+                    weight = masked_df['weight'], sample = sample_name,
+                    mass = utils.tonp(masked_df.tmass_svmu)
+                )
+
+                accumulator[category]['corr_M'].fill(
+                    weight = masked_df['weight'], sample = sample_name,
+                    mass = utils.tonp(masked_df.mass_corr)
+                )
+                
         
         return accumulator
 
@@ -256,7 +360,7 @@ else:
 output = processor.run_uproot_job(
     fileset,
     treename = 'HeavyNeutralLepton/tree_',
-    processor_instance = SkimPlot(args.jobid),
+    processor_instance = SkimPlot(args.jobid, fileset.keys()),
     # executor = processor.iterative_executor,
     # executor_args={'workers': 1, 'flatten' : False},
     ## executor=processor.futures_executor,
@@ -269,7 +373,22 @@ output = processor.run_uproot_job(
 print('DONE!')
 print(output)
 
+# Save columns that are otherwise not stored
+# import pandas as pd
+# for sample, columns in output['columns'].items():
+#     df = pd.DataFrame({
+#         i : j for i, j in columns.items()
+#         # TODO: special treatments for conv columns
+#     })
+#     df.to_hdf(
+#         f'results/{args.jobid}/skimplot{args.tag}.coffea', 
+#         sample, mode = 'a'
+#     )
+
+# remove columns, as they cannot be pickled
+# del output['columns']
 from coffea.util import save
 if not os.path.isdir(f'results/{args.jobid}'):
     os.makedirs(f'results/{args.jobid}')
 save(output, f'results/{args.jobid}/skimplot{args.tag}.coffea')
+

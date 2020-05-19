@@ -1,5 +1,5 @@
 import coffea.processor as processor
-from accumulators import HistAccumulator
+import accumulators
 import uproot
 from pdb import set_trace
 import os
@@ -27,7 +27,7 @@ parser.add_argument('-l', '--limit', default='*', help='limit to specific datase
 parser.add_argument('-j', '--jobs', type=int, default=1, help='How many processes to run (available only with -d)')
 args = parser.parse_args()
 
-basedir = f'/home/users/j/p/jpriscia/coffea_hnl/inputs/{args.jobid}/' # HARDCODED FIXME!
+basedir = f'/home/users/j/p/jpriscia/coffea_hnl/inputs/{args.jobid}/'
 if not os.path.isdir(basedir):
     raise RuntimeError('The jobid directory does not exist!')
 
@@ -59,7 +59,7 @@ class PUHists(processor.ProcessorABC):
         self.binning = binning
         ## Scale Factors
         self._accumulator = processor.dict_accumulator({
-            s : HistAccumulator(binning.shape[0] - 1)
+            s : accumulators.HistAccumulator(binning.shape[0] - 1)
             for s in samples
         })
     
@@ -116,7 +116,7 @@ output = processor.run_uproot_job(
 )
 print('DONE!')
 print(output)
-
+set_trace() # to do: controllare che sovrascriva il pu_mc
 outf = uproot.recreate(f'inputs/{args.jobid}/pu_mc.root')
 for key, h in output.items():
     vals = h.value
