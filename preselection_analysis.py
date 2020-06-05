@@ -83,10 +83,72 @@ class SkimPlot(processor.ProcessorABC):
             'cutflow' : processor.defaultdict_accumulator(float),
             'columns' : processor.dict_accumulator({
                 i : processor.dict_accumulator({
-                    'mu2_absdxy' : ColumnAccumulator(np.float32)
+                    'isOS' : ColumnAccumulator(bool),
+                    'mu2_absdxy' : ColumnAccumulator(np.float32),
+                    'mu2_absdz' : ColumnAccumulator(np.float32),
+                    'mu2_phi'  : ColumnAccumulator(np.float64),
+                    'mu2_ptBT'  : ColumnAccumulator(np.float64),
+                    'mu2_etaBT' : ColumnAccumulator(np.float64),
+                    'mu2_absdxySig' : ColumnAccumulator(np.float64),
+                    'mu2_absdzSig'  : ColumnAccumulator(np.float64),
+                    'mu2_deltaBeta' : ColumnAccumulator(np.float64),
+                    'mu2_nDof' : ColumnAccumulator(np.float64),
+                    'mu2_timeAtIpInOut' : ColumnAccumulator(np.float64),
+                    'mu2_timeAtIpInOutErr' : ColumnAccumulator(np.float64),
+                    'mu2_timeAtIpOutIn' : ColumnAccumulator(np.float64),
+                    'mu2_timeAtIpOutInErr' : ColumnAccumulator(np.float64),
+                    'mu2_segmentComp' : ColumnAccumulator(np.float64),
+                    'mu2_trkKink' : ColumnAccumulator(np.float64),
+                    'mu2_chi2LocalPosition' : ColumnAccumulator(np.float64),
+                    'mu2_rhoRelIso' : ColumnAccumulator(np.float64),
+                    'sv_mass' : ColumnAccumulator(np.float64),
+                    'sv_pt' : ColumnAccumulator(np.float64),
+                    'sv_lxySig' : ColumnAccumulator(np.float64),
+                    'sv_lxyzSig' : ColumnAccumulator(np.float64),
+                    'sv_lxy' : ColumnAccumulator(np.float64),
+                    'sv_lxyz' : ColumnAccumulator(np.float64),
+                    'sv_angle3D' : ColumnAccumulator(np.float64),
+                    'sv_angle2D' : ColumnAccumulator(np.float64),
+                    'sv_gamma' : ColumnAccumulator(np.float64),
+                    'sv_chi2' : ColumnAccumulator(np.float64),
+                    'sv_sum_tracks_dxySig' : ColumnAccumulator(np.float64),
+                    'mujet_eta' : ColumnAccumulator(np.float64),
+                    'mujet_phi' : ColumnAccumulator(np.float64),
+                    'mujet_neutHadEnFrac' : ColumnAccumulator(np.float64),
+                    'mujet_neutEmEnFrac' : ColumnAccumulator(np.float64),
+                    'mujet_charHadEnFrac' : ColumnAccumulator(np.float64),
+                    'mujet_charEmEnFrac' : ColumnAccumulator(np.float64),
+                    'mujet_chargedMult' : ColumnAccumulator(np.float64),
+                    'mujet_neutMult' : ColumnAccumulator(np.float64),
+                    'mujet_smeared_pt' : ColumnAccumulator(np.float64),
+                    'mujet_dCsv_bb' : ColumnAccumulator(np.float64),
+                    'mujet_charEmEn' : ColumnAccumulator(np.float64),
+                    'mujet_charHadEn' : ColumnAccumulator(np.float64),
+                    'mujet_charMuEn' : ColumnAccumulator(np.float64),
+                    'mujet_charMuEnFrac' : ColumnAccumulator(np.float64),
+                    'mujet_muonEn' : ColumnAccumulator(np.float64),
+                    'mujet_muonEnFrac' : ColumnAccumulator(np.float64),
+                    'mujet_neutEmEn' : ColumnAccumulator(np.float64),
+                    'mujet_neutHadEn' : ColumnAccumulator(np.float64),
+                    'sv_tM' : ColumnAccumulator(np.float64),
+                    'mu1_tM' : ColumnAccumulator(np.float64),
+                    'mu2_tM' : ColumnAccumulator(np.float64),
+                    'corr_M' : ColumnAccumulator(np.float64),
+                    'dimu_deltaphi' : ColumnAccumulator(np.float64),
+                    'nLooseMu' : ColumnAccumulator(np.int64),
+                    'nDisplacedMu' : ColumnAccumulator(np.int64),
+                    'sv_tracks_charge' : ColumnAccumulator(np.int32, True),
+                    'sv_tracks_eta' : ColumnAccumulator(np.float32, True),
+                    'sv_tracks_phi' : ColumnAccumulator(np.float32, True),
+                    'sv_tracks_pt' : ColumnAccumulator(np.float32, True),
+                    'sv_tracks_p' : ColumnAccumulator(np.float32, True),
+                    'sv_tracks_dxySig' : ColumnAccumulator(np.float32, True),
+                    'sv_tracks_dxy' : ColumnAccumulator(np.float32, True),
+                    'sv_tracks_dxyz' : ColumnAccumulator(np.float32, True),
                 })
                 for i in samples
             }),
+
             # 'preselection_prompt_pt'   : hist.Hist('prompt_pt'  , sample_axis, pt_axis),
             # 'preselection_diplaced_pt' : hist.Hist('diplaced_pt', sample_axis, pt_axis),
             # 'preselection_di_mu_M'     : hist.Hist('di_mu_M'    , sample_axis, mass_axis),
@@ -165,7 +227,9 @@ class SkimPlot(processor.ProcessorABC):
         df['muons'] = objects.make_muons(df)
         df['svs'] = objects.make_svs(df)
         df['jets'] = objects.make_jets(df)
-
+        
+        #count loose muons (- tight)
+        df['nLooseMu'] =  df.muons.isLoose.sum() - 1
         # Get prompt muon and select events
         prompt_mu_mask = (df.muons.p4.pt > 25) & (np.abs(df.muons.p4.eta) < 2.5) & (df.muons.dbIso < 0.15) & df.muons.isTight
         all_prompt_mus = df['muons'][prompt_mu_mask]
@@ -189,6 +253,7 @@ class SkimPlot(processor.ProcessorABC):
 
         # make skimming and attach trailing mu and sv
         presel = trig_and_prompt & (all_displ_mu.counts > 0) & (good_svs.counts > 0) 
+        df['n_displaced_mu'] = all_displ_mu.counts
         df['second_mu'] = all_displ_mu[:,:1]
         df['goodsv'] = good_svs[:,:1]
         skim = df[presel]
@@ -226,17 +291,18 @@ class SkimPlot(processor.ProcessorABC):
             skim['second_mu'].p4.delta_r(jets.p4) 
         )
         
-        selection = (dr_promt >= 0.4) & (dr_second <= 0.7) & \
+        selection_dr = (dr_promt >= 0.4) & (dr_second <= 0.7) & \
                     (jets.p4.pt > 20) & jet_id
         
-        selected_jets = jets[selection]
-        selected_dr_second = dr_second[selection]
+        selected_jets = jets[selection_dr]
+        selected_dr_second = dr_second[selection_dr]
+        ##skim['n_selected_jets'] = None  TO ADD when we understand what Mohamed did
         
         # pick the closest jet, keep jaggedness to avoid 
         # messing up skim. This BADLY needs awkward v2.0
         # to fix this mess
         min_dr = selected_dr_second.argmin()
-        skim['matched_jet'] = selected_jets[min_dr]
+        matched_jets = selected_jets[min_dr]
         at_least_one_jet = (selected_dr_second.count() > 0)
 
         # make preselection variables and cuts
@@ -255,6 +321,8 @@ class SkimPlot(processor.ProcessorABC):
         skim['tmass_svmu'] = np.sqrt(pow(svPlusmu_p4.pt  + skim.pfMet_pt,2) - \
                                      pow(svPlusmu_p4.x + skim.pfMet_px,2) - \
                                      pow(svPlusmu_p4.y + skim.pfMet_py,2))
+
+        skim['dimu_deltaphi'] = np.abs(skim.prompt_mu.p4.delta_phi(skim.second_mu.p4))
         
         goodsv_pt2 = (skim.goodsv.position.cross(skim.goodsv.p3).mag2)/(skim.goodsv.position.mag2)
         skim['mass_corr'] = np.sqrt(skim.goodsv.p4.mass * skim.goodsv.p4.mass + goodsv_pt2) + \
@@ -267,16 +335,19 @@ class SkimPlot(processor.ProcessorABC):
                     (0.3 < skim.ll_dr) & at_least_one_jet
 
         preselection = skim[preselection_mask]
-        preselection['matched_jet'] = preselection['matched_jet'].flatten()
+        matched_jet = matched_jets[preselection_mask][:,0] # cannot attach to preselection for some reason FIXME!
         
         selection_mask = (20 < preselection.ll_mass) & (preselection.ll_mass < 85) & \
                         (1 < preselection.ll_dr) & (preselection.ll_dr < 5) & \
                         (preselection.jet_pt.counts > 0) & (preselection.jet_pt.max() > 20)
 
         same_sign = (preselection.prompt_mu.charge * preselection.second_mu.charge) >0.
-        opp_sign = (preselection.prompt_mu.charge * preselection.second_mu.charge) <0.
-
+        opp_sign = np.invert(same_sign)
+        preselection['isOS'] = opp_sign
+        
         accumulator['cutflow'][f'{sample_name}_preselection'] += preselection.shape[0]
+        accumulator['cutflow'][f'{sample_name}_selection'] += selection_mask.sum()
+
         #print(preselection.shape[0], preselection['weight'].sum())
         # fill preselection histograms
 
@@ -287,6 +358,7 @@ class SkimPlot(processor.ProcessorABC):
             ('selection_OS', selection_mask & opp_sign),]:
 
             masked_df = preselection[mask]
+            masked_jets = matched_jet[mask]
             accumulator[category]['prompt_pt'  ].fill(
                 weight = masked_df['weight'], sample = sample_name, 
                 pt = utils.tonp(masked_df.prompt_mu.p4.pt)
@@ -304,11 +376,8 @@ class SkimPlot(processor.ProcessorABC):
                 dr = utils.tonp(masked_df.ll_dr)
             )
 
-            if category.startswith('selection'):
-                accumulator['columns'][sample_name]['mu2_absdxy'] += utils.tonp(masked_df['second_mu']['absdxy'])
-
             if category == 'preselection_SS' or category == 'preselection_OS':
-                
+
                 accumulator[category]['sv_tM'].fill(
                     weight = masked_df['weight'], sample = sample_name,
                     mass = utils.tonp(masked_df.tmass_goodsv)
@@ -328,7 +397,80 @@ class SkimPlot(processor.ProcessorABC):
                     weight = masked_df['weight'], sample = sample_name,
                     mass = utils.tonp(masked_df.mass_corr)
                 )
-                
+
+            if category.startswith('selection'):
+                # variables for CNN
+                accumulator['columns'][sample_name]['isOS'] += utils.tonp(masked_df['isOS'])
+                accumulator['columns'][sample_name]['mu2_absdxy'] += utils.tonp(masked_df['second_mu']['absdxy'])
+                accumulator['columns'][sample_name]['mu2_absdz'] += utils.tonp(masked_df['second_mu']['absdz'])
+                accumulator['columns'][sample_name]['mu2_phi'] += utils.tonp(masked_df['second_mu'].p4.phi)
+                accumulator['columns'][sample_name]['mu2_ptBT'] += utils.tonp(masked_df['second_mu']['pt_BT'])
+                accumulator['columns'][sample_name]['mu2_etaBT'] += utils.tonp(masked_df['second_mu']['eta_BT'])
+                accumulator['columns'][sample_name]['mu2_absdxySig'] += utils.tonp(masked_df['second_mu']['absdxySig'])
+                accumulator['columns'][sample_name]['mu2_absdzSig'] += utils.tonp(masked_df['second_mu']['absdzSig'])
+                accumulator['columns'][sample_name]['mu2_deltaBeta'] += utils.tonp(masked_df['second_mu']['deltaBeta'])
+                accumulator['columns'][sample_name]['mu2_nDof'] += utils.tonp(masked_df['second_mu']['nDof'])
+                accumulator['columns'][sample_name]['mu2_timeAtIpInOut'] += utils.tonp(masked_df['second_mu']['timeAtIpInOut'])
+                accumulator['columns'][sample_name]['mu2_timeAtIpInOutErr'] += utils.tonp(masked_df['second_mu']['timeAtIpInOutErr'])
+                accumulator['columns'][sample_name]['mu2_timeAtIpOutIn'] += utils.tonp(masked_df['second_mu']['timeAtIpOutIn'])
+                accumulator['columns'][sample_name]['mu2_timeAtIpOutInErr'] += utils.tonp(masked_df['second_mu']['timeAtIpOutInErr'])
+                accumulator['columns'][sample_name]['mu2_segmentComp'] += utils.tonp(masked_df['second_mu']['segmentComp'])
+                accumulator['columns'][sample_name]['mu2_trkKink'] += utils.tonp(masked_df['second_mu']['trkKink'])
+                accumulator['columns'][sample_name]['mu2_chi2LocalPosition'] += utils.tonp(masked_df['second_mu']['chi2LocalPosition'])
+                accumulator['columns'][sample_name]['mu2_rhoRelIso'] += utils.tonp(masked_df['second_mu']['rho_rel_iso'])
+                accumulator['columns'][sample_name]['sv_mass'] += utils.tonp(masked_df['goodsv'].p4.mass)
+                accumulator['columns'][sample_name]['sv_pt'] += utils.tonp(masked_df['goodsv'].p4.pt)
+                accumulator['columns'][sample_name]['sv_lxySig'] += utils.tonp(masked_df['goodsv']['lxySig'])
+                accumulator['columns'][sample_name]['sv_lxyzSig'] += utils.tonp(masked_df['goodsv']['lxyzSig'])
+                accumulator['columns'][sample_name]['sv_lxy'] += utils.tonp(masked_df['goodsv']['lxy'])
+                accumulator['columns'][sample_name]['sv_lxyz'] += utils.tonp(masked_df['goodsv']['lxyz'])
+                accumulator['columns'][sample_name]['sv_angle3D'] += utils.tonp(masked_df['goodsv']['angle3D'])
+                accumulator['columns'][sample_name]['sv_angle2D'] += utils.tonp(masked_df['goodsv']['angle2D'])
+                accumulator['columns'][sample_name]['sv_gamma'] += utils.tonp(masked_df['goodsv']['gamma'])
+                accumulator['columns'][sample_name]['sv_chi2'] += utils.tonp(masked_df['goodsv']['chi2'])                
+                accumulator['columns'][sample_name]['sv_sum_tracks_dxySig'] += utils.tonp(masked_df['goodsv']['sum_tracks_dxySig']).astype(np.float64)
+                accumulator['columns'][sample_name]['mujet_eta'] += utils.tonp(masked_jets.p4.eta)
+                accumulator['columns'][sample_name]['mujet_phi'] += utils.tonp(masked_jets.p4.phi)
+                accumulator['columns'][sample_name]['mujet_neutHadEnFrac'] += utils.tonp(masked_jets['neutHadEnFrac'])
+                accumulator['columns'][sample_name]['mujet_neutEmEnFrac'] += utils.tonp(masked_jets['neutEmEnFrac'])
+                accumulator['columns'][sample_name]['mujet_charHadEnFrac'] += utils.tonp(masked_jets['charHadEnFrac'])
+                accumulator['columns'][sample_name]['mujet_charEmEnFrac'] += utils.tonp(masked_jets['charEmEnFrac'])
+                accumulator['columns'][sample_name]['mujet_neutMult'] += utils.tonp(masked_jets['neutMult'])
+                accumulator['columns'][sample_name]['mujet_smeared_pt'] += utils.tonp(masked_jets['smeared_pt'])
+                accumulator['columns'][sample_name]['mujet_dCsv_bb'] += utils.tonp(masked_jets['dCsv_bb'])
+                accumulator['columns'][sample_name]['mujet_charEmEn'] += utils.tonp(masked_jets['charEmEn'])
+                accumulator['columns'][sample_name]['mujet_charHadEn'] += utils.tonp(masked_jets['charHadEn'])
+                accumulator['columns'][sample_name]['mujet_charMuEn'] += utils.tonp(masked_jets['charMuEn'])
+                accumulator['columns'][sample_name]['mujet_charMuEnFrac'] += utils.tonp(masked_jets['charMuEnFrac'])
+                accumulator['columns'][sample_name]['mujet_muonEn'] += utils.tonp(masked_jets['muonEn'])
+                accumulator['columns'][sample_name]['mujet_muonEnFrac'] += utils.tonp(masked_jets['muonEnFrac'])
+                accumulator['columns'][sample_name]['mujet_muonEn'] += utils.tonp(masked_jets['muonEn'])
+                accumulator['columns'][sample_name]['mujet_muonEnFrac'] += utils.tonp(masked_jets['muonEnFrac'])
+                accumulator['columns'][sample_name]['mujet_neutEmEn'] += utils.tonp(masked_jets['neutEmEn'])
+                accumulator['columns'][sample_name]['mujet_neutHadEn'] += utils.tonp(masked_jets['neutHadEn'])
+                accumulator['columns'][sample_name]['sv_tM'] += utils.tonp(masked_df['tmass_goodsv'])
+                accumulator['columns'][sample_name]['mu1_tM'] += utils.tonp(masked_df['tmass_promptmu'])
+                accumulator['columns'][sample_name]['mu2_tM'] += utils.tonp(masked_df['tmass_svmu'])
+                accumulator['columns'][sample_name]['corr_M'] += utils.tonp(masked_df['mass_corr'])
+                accumulator['columns'][sample_name]['dimu_deltaphi'] += utils.tonp(masked_df['dimu_deltaphi'])
+                accumulator['columns'][sample_name]['nLooseMu'] += utils.tonp(masked_df['nLooseMu'])
+                accumulator['columns'][sample_name]['nDisplacedMu'] += utils.tonp(masked_df['n_displaced_mu'])
+
+                #accumulator['columns'][sample_name][''] += utils.tonp(masked_df[''][''])
+                #accumulator['columns'][sample_name][''] += utils.tonp(masked_df[''][''])
+                #accumulator['columns'][sample_name][''] += utils.tonp(masked_df[''][''])
+                #accumulator['columns'][sample_name][''] += utils.tonp(masked_df[''][''])
+                #accumulator['columns'][sample_name][''] += utils.tonp(masked_df[''][''])
+                #accumulator['columns'][sample_name][''] += utils.tonp(masked_df[''][''])
+                #set_trace()
+                accumulator['columns'][sample_name]['sv_tracks_charge'] += utils.tonp(masked_df['goodsv']['tracks_charge'])
+                accumulator['columns'][sample_name]['sv_tracks_eta'] += utils.tonp(masked_df['goodsv']['tracks_eta'] )
+                accumulator['columns'][sample_name]['sv_tracks_phi'] += utils.tonp(masked_df['goodsv']['tracks_phi'])
+                accumulator['columns'][sample_name]['sv_tracks_pt'] += utils.tonp(masked_df['goodsv']['tracks_pt'])
+                accumulator['columns'][sample_name]['sv_tracks_p'] += utils.tonp(masked_df['goodsv']['tracks_p'])
+                accumulator['columns'][sample_name]['sv_tracks_dxySig'] += utils.tonp(masked_df['goodsv']['tracks_dxySig'])
+                accumulator['columns'][sample_name]['sv_tracks_dxy'] += utils.tonp(masked_df['goodsv']['tracks_dxy'])
+                accumulator['columns'][sample_name]['sv_tracks_dxyz'] += utils.tonp(masked_df['goodsv']['tracks_dxyz'])
         
         return accumulator
 
