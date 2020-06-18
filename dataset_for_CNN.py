@@ -2,6 +2,10 @@ import numba
 import awkward as awk
 import numpy as np
 from pdb import set_trace
+import utils
+from sklearn import datasets, metrics, model_selection, svm
+from scikit_BDT_utils import *
+from scikit_Function import *
 
 def zero_pad(jarr, msize):
     '''converts a jagged array into a 2D np.array, filling blanks with zeros
@@ -43,9 +47,33 @@ args = parser.parse_args()
 from glob import glob
 from coffea.util import load
 
+#load weights
+years = {
+    '2017' : {
+        'lumi' : 40e3,
+        'xsecs' : '/home/ucl/cp3/jpriscia/CMSSW_10_2_15_patch2/src/HNL/HeavyNeutralLeptonAnalysis/test/input_mc_2017.yml',
+    },
+    '2018' : {
+        'lumi' : 59.7e3,
+        'xsecx' : '/home/ucl/cp3/jpriscia/CMSSW_10_2_15_patch2/src/HNL/HeavyNeutralLeptonAnalysis/test/input_mcAll_2018.yml'
+    }
+}
+
+if '2017' in args.jobid:
+    year = years['2017']
+elif '2018' in args.jobid:
+    year = years['2018']
+
+scaling = utils.compute_weights(
+    f'inputs/{args.jobid}/mc.meta.json', year['lumi'],
+    year['xsecx']
+)
+
+xs_weights = []
+
 data, labels, masks = [], [], []
 infiles = glob(f'results/{args.jobid}/skimplotnew_*.coffea')
-for ifile in infiles[:2]:
+for ifile in infiles:
     idata = load(ifile)
     for sample, cols in idata['columns'].items():
         print('processing ', sample, '...')
@@ -71,22 +99,36 @@ for ifile in infiles[:2]:
             if sample.startswith('M-') else
             np.zeros(data[-1].shape[0])
         )
+        xs_weights.append(
+            np.ones(data[-1].shape[0]) if sample.startswith('M-') else
+             np.ones(data[-1].shape[0])*scaling[sample]
+
+        )
+
+#bkgSumW = sum([x for x in xs_weights if x != 1.0])
+#nSigSamples = len([x for x in xs_weights if x == 1.0])
+#xs_weights = [bkgSumW/nSigSamples if x==1 else x for x in xs_weights]
 
 data = np.concatenate(data)
 labels = np.concatenate(labels)
 masks = np.concatenate(masks)
+xs_weights = np.concatenate(xs_weights)
+
+#normalise bkg and signal weights. Put the same weight to all signals
+mskBkg = (xs_weights!=1.0)
+bkgSumW = xs_weights[mskBkg].sum()
+nSigSamples = len(mskBkg) - np.count_nonzero(mskBkg)
+sig_weight = bkgSumW/nSigSamples
+xs_weights[np.invert(mskBkg)] = sig_weight
+
 # shuffle data
 rnd = np.random.permutation(labels.shape[0])
 data = data[rnd]
 labels = labels[rnd]
 masks = masks[rnd]
-masks = masks.reshape((-1, masks.shape[1], 1))
-signal_weight = labels.sum()/labels.shape[0]
+xs_weights = xs_weights[rnd]
 
-def get_weight(label, weight):
-    ret = np.ones(label.shape)
-    ret[label == 1] *= weight
-    return ret
+masks = masks.reshape((-1, masks.shape[1], 1))
 
 # train the network
 import matplotlib
@@ -105,7 +147,7 @@ from sklearn.metrics import confusion_matrix
 import itertools 
 from sklearn.model_selection import train_test_split
 
-x_train, x_test, y_train, y_test, m_train, m_test = train_test_split(data, labels, masks, test_size=0.15, random_state=0)
+x_train, x_test, y_train, y_test, m_train, m_test, w_train, w_test = train_test_split(data, labels, masks, xs_weights,  test_size=0.15, random_state=0)
 
 nn = Input(shape = data.shape[1:])
 msk = Input(shape = masks.shape[1:])
@@ -127,9 +169,44 @@ history = model.fit(
     (x_train, m_train),
     y_train,
     batch_size = 100,
-    epochs = 5,
+    epochs = 30,
     callbacks = [early_stop],
     validation_split = 0.1,
     shuffle = True,
-    sample_weight = get_weight(y_train, signal_weight),
+    sample_weight = w_train,
     )
+
+for name in ['loss', 'accuracy']:
+    epochs = range(len(history.history[name]))
+    plt.plot(epochs, history.history[name], label='Training')
+    plt.plot(epochs, history.history[f'val_{name}'], label='Validation')
+    plt.title(f'Training and validation {name}')
+    plt.legend()
+    plt.figure()
+    plt.savefig(f'plots/{args.jobid}/cnn_{name}.png')
+
+pred_test = model.predict((x_test, m_test))
+pred_train = model.predict((x_train, m_train))
+
+#split sig and bkg
+pred_train_Sig = model.predict((x_train[y_train > 0.5], m_train[y_train > 0.5]))
+pred_train_Bkg = model.predict((x_train[y_train < 0.5], m_train[y_train < 0.5]))
+pred_test_Sig  = model.predict((x_test[y_test > 0.5], m_test[y_test > 0.5]))
+pred_test_Bkg  = model.predict((x_test[y_test < 0.5], m_test[y_test < 0.5]))
+
+#ROC curve
+set_trace()
+fpr, tpr, threshold = metrics.roc_curve(y_test, pred_test, sample_weight=w_test)
+roc_auc = metrics.auc(fpr, tpr)
+plt.title('Receiver Operating Characteristic')
+plt.plot(fpr, tpr, 'b', label = 'AUC = %0.2f' % roc_auc)
+plt.xlim([-0.05, 1.05])
+plt.ylim([-0.05, 1.05])
+plt.ylabel('True Positive Rate')
+plt.xlabel('False Positive Rate')
+plt.show()
+plt.grid()
+plt.savefig('ROC.png')
+
+#compare Decision Functions
+compare_train_test_dec(pred_train_Sig.flatten(), pred_train_Bkg.flatten(), pred_test_Sig.flatten(), pred_test_Bkg.flatten())
