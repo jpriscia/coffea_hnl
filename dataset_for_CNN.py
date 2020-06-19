@@ -161,15 +161,16 @@ dense = Dense(64, activation='elu', name = 'dense1')(summed)
 out = Dense(1, activation = 'sigmoid', name = 'out')(dense)
 
 model = Model(inputs=(nn, msk), outputs=out)
-model.compile(loss='binary_crossentropy', optimizer='Adamax', metrics=['accuracy'])
+optimizer = optimizers.Adamax(lr=0.002)
+model.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=['accuracy'])
 
-early_stop = EarlyStopping(monitor='val_acc', min_delta=0.0001, patience=10, verbose=1, mode='auto')
+early_stop = EarlyStopping(monitor='val_accuracy', min_delta=0.0001, patience=10, verbose=1, mode='auto')
 
 history = model.fit(
     (x_train, m_train),
     y_train,
-    batch_size = 100,
-    epochs = 30,
+    batch_size = 200,
+    epochs = 50,
     callbacks = [early_stop],
     validation_split = 0.1,
     shuffle = True,
@@ -178,11 +179,11 @@ history = model.fit(
 
 for name in ['loss', 'accuracy']:
     epochs = range(len(history.history[name]))
+    plt.figure()
     plt.plot(epochs, history.history[name], label='Training')
     plt.plot(epochs, history.history[f'val_{name}'], label='Validation')
     plt.title(f'Training and validation {name}')
     plt.legend()
-    plt.figure()
     plt.savefig(f'plots/{args.jobid}/cnn_{name}.png')
 
 pred_test = model.predict((x_test, m_test))
@@ -195,9 +196,9 @@ pred_test_Sig  = model.predict((x_test[y_test > 0.5], m_test[y_test > 0.5]))
 pred_test_Bkg  = model.predict((x_test[y_test < 0.5], m_test[y_test < 0.5]))
 
 #ROC curve
-set_trace()
 fpr, tpr, threshold = metrics.roc_curve(y_test, pred_test, sample_weight=w_test)
 roc_auc = metrics.auc(fpr, tpr)
+plt.figure()
 plt.title('Receiver Operating Characteristic')
 plt.plot(fpr, tpr, 'b', label = 'AUC = %0.2f' % roc_auc)
 plt.xlim([-0.05, 1.05])
@@ -206,7 +207,13 @@ plt.ylabel('True Positive Rate')
 plt.xlabel('False Positive Rate')
 plt.show()
 plt.grid()
-plt.savefig('ROC.png')
+plt.savefig(f'plots/{args.jobid}/ROC.png')
 
+idx_99 = np.argmin(abs(fpr-0.01))
+print(fpr[idx_99], tpr[idx_99])
 #compare Decision Functions
+plt.figure()
 compare_train_test_dec(pred_train_Sig.flatten(), pred_train_Bkg.flatten(), pred_test_Sig.flatten(), pred_test_Bkg.flatten())
+plt.savefig(f'plots/{args.jobid}/OT.png')
+set_trace()
+
