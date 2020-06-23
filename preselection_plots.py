@@ -24,6 +24,7 @@ from pdb import set_trace
 parser = ArgumentParser()
 parser.add_argument('jobid', default='2018_preskim', help='jobid to run on')
 parser.add_argument('--isSig' , action='store_true', help='signal or mc/data')
+
 #parser.add_argument
 args = parser.parse_args()
 
@@ -75,7 +76,8 @@ mc = re.compile(r'mc_\w+')
 sig = re.compile(r'sig_.+')
 
 for key, x_title in plots:
-    for sel in ['preselection_SS','preselection_OS','selection_SS','selection_OS']:
+    #for sel in ['preselection_SS','preselection_OS','selection_SS','selection_OS']:
+    for sel in ['preselection_SS','preselection_OS']:
         fig, (ax, rax) = plt.subplots(
             2, 1, figsize = (7,7), 
             gridspec_kw = {"height_ratios": (3, 1)}, 
@@ -155,6 +157,15 @@ for key, x_title in plots:
                 clear = False,
                 error_opts = styles.data_err_opts
             )
+            
+            cofplt.plot1d(
+                grouped[sig],
+                overlay = "process",
+                ax = ax,
+                clear = False,
+                #error_opts = styles.data_err_opts
+            )
+            
 
         ax.autoscale(axis='x', tight=True)
         ax.set_ylim(0, None)
@@ -186,10 +197,17 @@ for key, x_title in plots:
             transform=ax.transAxes
         )
         
-        plt.savefig(f'plots/{args.jobid}/{sel}_{key}.pdf')
-        plt.savefig(f'plots/{args.jobid}/{sel}_{key}.png')
+        if not args.isSig:
+            #plt.savefig(f'plots/{args.jobid}/{sel}_{key}.pdf')
+            plt.savefig(f'plots/{args.jobid}/{sel}_{key}.png')
         
-        ax.set_ylim(0.1, None)
-        ax.set_yscale('log')
-        plt.savefig(f'plots/{args.jobid}/{sel}_{key}_log.pdf')
-        plt.savefig(f'plots/{args.jobid}/{sel}_{key}_log.png')
+            ax.set_ylim(0.1, None)
+            ax.set_yscale('log')
+            #plt.savefig(f'plots/{args.jobid}/{sel}_{key}_log.pdf')
+            plt.savefig(f'plots/{args.jobid}/{sel}_{key}_log.png')
+
+        else:
+            plt.savefig(f'plots/{args.jobid}/{sel}_{key}_Sig.png')
+            ax.set_ylim(0.1, None)
+            ax.set_yscale('log')
+            plt.savefig(f'plots/{args.jobid}/{sel}_{key}_Sig_log.png')

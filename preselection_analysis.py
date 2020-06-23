@@ -231,7 +231,7 @@ class SkimPlot(processor.ProcessorABC):
         #count loose muons (- tight)
         df['nLooseMu'] =  df.muons.isLoose.sum() - 1
         # Get prompt muon and select events
-        prompt_mu_mask = (df.muons.p4.pt > 25) & (np.abs(df.muons.p4.eta) < 2.5) & (df.muons.dbIso < 0.15) & df.muons.isTight
+        prompt_mu_mask = (df.muons.p4.pt > 25) & (np.abs(df.muons.p4.eta) < 2.5) & (df.muons.dbIso < 0.1) & df.muons.isTight
         all_prompt_mus = df['muons'][prompt_mu_mask]
         df['prompt_mu'] = all_prompt_mus[:,:1] # pick only the first one
         trig_to_use = 'passIsoMu27All' if '2017' in self.jobid else 'passIsoMu24'
@@ -331,13 +331,13 @@ class SkimPlot(processor.ProcessorABC):
         # make preslection cut
         preselection_mask = (skim.prompt_mu.absdxy < 0.005) & (skim.prompt_mu.absdz < 0.1) & \
                     (skim.second_mu.absdxy > 0.02) & \
-                    (40 < skim.m1_vtx_mass) & (skim.m1_vtx_mass < 90) & \
+                    #(40 < skim.m1_vtx_mass) & (skim.m1_vtx_mass < 90) & \
                     (0.3 < skim.ll_dr) & at_least_one_jet
 
         preselection = skim[preselection_mask]
         matched_jet = matched_jets[preselection_mask][:,0] # cannot attach to preselection for some reason FIXME!
         
-        selection_mask = (20 < preselection.ll_mass) & (preselection.ll_mass < 85) & \
+        selection_mask = #(20 < preselection.ll_mass) & (preselection.ll_mass < 85) & \
                         (1 < preselection.ll_dr) & (preselection.ll_dr < 5) & \
                         (preselection.jet_pt.counts > 0) & (preselection.jet_pt.max() > 20)
 

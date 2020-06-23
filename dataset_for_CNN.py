@@ -147,35 +147,90 @@ from sklearn.metrics import confusion_matrix
 import itertools 
 from sklearn.model_selection import train_test_split
 
+####test mohammed CNN###
+#channels = 1
+#img_size = 160
+#data = data.reshape(-1,channels,img_size)
+#######
 x_train, x_test, y_train, y_test, m_train, m_test, w_train, w_test = train_test_split(data, labels, masks, xs_weights,  test_size=0.15, random_state=0)
 
-nn = Input(shape = data.shape[1:])
-msk = Input(shape = masks.shape[1:])
-conv = Conv1D(32,  1, activation='elu', padding='same', data_format='channels_last', name='conv1')(nn)
-conv = Conv1D(32,  1, activation='elu', padding='same', data_format='channels_last', name='conv2')(conv)
-conv = Conv1D(32,  1, activation='elu', padding='same', data_format='channels_last', name='conv3')(conv)
-conv = Conv1D(32,  1, activation='elu', padding='same', data_format='channels_last', name='conv4')(conv)
-masked_conv = conv * msk
-summed = keras.backend.sum(masked_conv, axis = 1)
-dense = Dense(64, activation='elu', name = 'dense1')(summed)
-out = Dense(1, activation = 'sigmoid', name = 'out')(dense)
+set_trace()
+#nn = Input(shape = data.shape[1:])
+#msk = Input(shape = masks.shape[1:])
+#conv = Conv1D(32,  1, activation='elu', padding='same', data_format='channels_last', name='conv1')(nn)
+#conv = Conv1D(32,  1, activation='elu', padding='same', data_format='channels_last', name='conv2')(conv)
+#conv = Conv1D(32,  1, activation='elu', padding='same', data_format='channels_last', name='conv3')(conv)
+#conv = Conv1D(32,  1, activation='elu', padding='same', data_format='channels_last', name='conv4')(conv)
+#masked_conv = conv * msk
+#summed = keras.backend.sum(masked_conv, axis = 1)
+#dense = Dense(64, activation='elu', name = 'dense1')(summed)
+#out = Dense(1, activation = 'sigmoid', name = 'out')(dense)
 
-model = Model(inputs=(nn, msk), outputs=out)
-optimizer = optimizers.Adamax(lr=0.002)
-model.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=['accuracy'])
+#model = Model(inputs=(nn, msk), outputs=out)
+#optimizer = optimizers.Adamax(lr=0.002)
+#model.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=['accuracy'])
+
+
+######test mohammmed CNN######
+nn = Input(shape=(channels,img_size), name='input')
+conv = Conv1D(32,  3, activation='elu', padding='same', data_format='channels_last', name='conv1')(nn)
+conv = Conv1D(64,  3, activation='elu', padding='same', data_format='channels_last', name='conv3')(conv)
+conv = Conv1D(128, 3, activation='elu', padding='same', data_format='channels_last', name='conv5')(conv)
+conv = Conv1D(256, 3, activation='elu', padding='same', data_format='channels_last', name='conv7')(conv)
+dense = Dropout(0.25)(conv)
+conv = Conv1D(512, 3, activation='elu', padding='same', data_format='channels_last', name='conv8')(dense)
+flat = Flatten()(conv)
+
+dense = Dense(256, activation='elu', name='dense2')(flat)
+dense = Dropout(0.5)(dense)
+pred = Dense(2, activation='softmax', name='output')(dense)
+
+model = Model(inputs=nn, outputs=pred)
+model.compile(loss='categorical_crossentropy', optimizer='Adamax', metrics=['accuracy'])
+################
 
 early_stop = EarlyStopping(monitor='val_accuracy', min_delta=0.0001, patience=10, verbose=1, mode='auto')
 
+
+#history = model.fit(
+#    (x_train, m_train),
+#    y_train,
+#    batch_size = 100,
+#    epochs = 30,
+#    callbacks = [early_stop],
+#    validation_split = 0.1,
+#    shuffle = True,
+#    sample_weight = w_train,
+#    )
+
+######fit mohamed########
 history = model.fit(
-    (x_train, m_train),
-    y_train,
-    batch_size = 200,
-    epochs = 50,
+    (x_train),#, m_train),
+    keras.utils.to_categorical(y_train),
+    batch_size = 100,
+    epochs = 10,
     callbacks = [early_stop],
     validation_split = 0.1,
     shuffle = True,
     sample_weight = w_train,
     )
+
+scores = model.evaluate(x_test, keras.utils.to_categorical(y_test), verbose=1)
+print('Test loss:', scores[0])
+print('Test accuracy:', scores[1])
+y_pred = model.predict(x_test)
+true = np.argmax(keras.utils.to_categorical(y_test), axis=1)
+pred = np.argmax(y_pred, axis=1)
+print('True labels: ', true)
+print('Predicted labels: ', pred)
+
+cnf_matrix = confusion_matrix(true, pred)
+cnf_matrix = cnf_matrix.astype('float') / cnf_matrix.sum(axis=1)[:, np.newaxis]
+print (cnf_matrix)
+
+##################
+
+set_trace()
 
 for name in ['loss', 'accuracy']:
     epochs = range(len(history.history[name]))
