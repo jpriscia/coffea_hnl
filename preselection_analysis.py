@@ -78,12 +78,16 @@ class SkimPlot(processor.ProcessorABC):
         dr_axis = hist.Bin("dr", r"$\Delta R$", 40, 0, 8)
         dr_axis_small = hist.Bin("dr", r"$\Delta R$", 40, 0.5, 5)
         mass_axis_small = hist.Bin("mass", r"m [GeV]", 40, 15, 90)
+        lxy_axis = hist.Bin("lxy", r"lxy [cm]", 50, 0, 100)
+        sv_mass_axis = hist.Bin("mass", r"m [GeV]", 50, 0, 10)
 
         self._accumulator = processor.dict_accumulator({
             'cutflow' : processor.defaultdict_accumulator(float),
             'columns' : processor.dict_accumulator({
                 i : processor.dict_accumulator({
                     'isOS' : ColumnAccumulator(bool),
+                    'pu_weight' : ColumnAccumulator(np.float64),
+                    'm1_vtx_mass' : ColumnAccumulator(np.float64),
                     'mu2_absdxy' : ColumnAccumulator(np.float32),
                     'mu2_absdz' : ColumnAccumulator(np.float32),
                     'mu2_phi'  : ColumnAccumulator(np.float64),
@@ -135,6 +139,8 @@ class SkimPlot(processor.ProcessorABC):
                     'mu2_tM' : ColumnAccumulator(np.float64),
                     'corr_M' : ColumnAccumulator(np.float64),
                     'dimu_deltaphi' : ColumnAccumulator(np.float64),
+                    'dimu_mass' : ColumnAccumulator(np.float64),
+                    'dimu_dr' : ColumnAccumulator(np.float64),
                     'nLooseMu' : ColumnAccumulator(np.int64),
                     'nDisplacedMu' : ColumnAccumulator(np.int64),
                     'sv_tracks_charge' : ColumnAccumulator(np.int32, True),
@@ -162,7 +168,9 @@ class SkimPlot(processor.ProcessorABC):
                 'mu_tM'       : hist.Hist('mu_tM'   , sample_axis, mass_axis),
                 'musv_tM'     : hist.Hist('musv_tM'   , sample_axis, mass_axis),
                 'corr_M'      : hist.Hist('corr_M'   , sample_axis, mass_axis),
-
+                'sv_lxy'      : hist.Hist('sv_lxy', sample_axis, lxy_axis),
+                'sv_mass'     : hist.Hist('sv_mass', sample_axis, sv_mass_axis),
+                'm1_vtx_mass' : hist.Hist('m1_vtx_mass', sample_axis, mass_axis),
             }),
             'preselection_OS' : processor.dict_accumulator({
                 'prompt_pt'   : hist.Hist('prompt_pt'  , sample_axis, pt_axis),
@@ -173,18 +181,27 @@ class SkimPlot(processor.ProcessorABC):
                 'mu_tM'       : hist.Hist('mu_tM'   , sample_axis, mass_axis),
                 'musv_tM'     : hist.Hist('musv_tM'   , sample_axis, mass_axis),
                 'corr_M'      : hist.Hist('corr_M'   , sample_axis, mass_axis),
+                'sv_lxy'      : hist.Hist('sv_lxy', sample_axis, lxy_axis),
+                'sv_mass'     : hist.Hist('sv_mass', sample_axis, sv_mass_axis),
+                'm1_vtx_mass' : hist.Hist('m1_vtx_mass', sample_axis, mass_axis),
             }),
             'selection_SS' : processor.dict_accumulator({
                 'prompt_pt'   : hist.Hist('prompt_pt'  , sample_axis, pt_axis),
                 'diplaced_pt' : hist.Hist('diplaced_pt', sample_axis, pt_axis),
                 'di_mu_M'     : hist.Hist('di_mu_M'    , sample_axis, mass_axis_small),
                 'di_mu_DR'    : hist.Hist('di_mu_DR'   , sample_axis, dr_axis_small),
+                'sv_lxy'      : hist.Hist('sv_lxy', sample_axis, lxy_axis),
+                'sv_mass'     : hist.Hist('sv_mass', sample_axis, sv_mass_axis),
+                'm1_vtx_mass' : hist.Hist('m1_vtx_mass', sample_axis, mass_axis),
             }),
             'selection_OS' : processor.dict_accumulator({
                 'prompt_pt'   : hist.Hist('prompt_pt'  , sample_axis, pt_axis),
                 'diplaced_pt' : hist.Hist('diplaced_pt', sample_axis, pt_axis),
                 'di_mu_M'     : hist.Hist('di_mu_M'    , sample_axis, mass_axis_small),
                 'di_mu_DR'    : hist.Hist('di_mu_DR'   , sample_axis, dr_axis_small),
+                'sv_lxy'      : hist.Hist('sv_lxy', sample_axis, lxy_axis),
+                'sv_mass'     : hist.Hist('sv_mass', sample_axis, sv_mass_axis),
+                'm1_vtx_mass' : hist.Hist('m1_vtx_mass', sample_axis, mass_axis),
             }),
         })
     
@@ -331,15 +348,16 @@ class SkimPlot(processor.ProcessorABC):
         # make preslection cut
         preselection_mask = (skim.prompt_mu.absdxy < 0.005) & (skim.prompt_mu.absdz < 0.1) & \
                     (skim.second_mu.absdxy > 0.02) & \
-                    #(40 < skim.m1_vtx_mass) & (skim.m1_vtx_mass < 90) & \
                     (0.3 < skim.ll_dr) & at_least_one_jet
+        #(40 < skim.m1_vtx_mass) & (skim.m1_vtx_mass < 90) & \ # removed from preselection_mask
 
         preselection = skim[preselection_mask]
         matched_jet = matched_jets[preselection_mask][:,0] # cannot attach to preselection for some reason FIXME!
         
-        selection_mask = #(20 < preselection.ll_mass) & (preselection.ll_mass < 85) & \
-                        (1 < preselection.ll_dr) & (preselection.ll_dr < 5) & \
-                        (preselection.jet_pt.counts > 0) & (preselection.jet_pt.max() > 20)
+        selection_mask = (1 < preselection.ll_dr) & (preselection.ll_dr < 5) & \
+                         (preselection.jet_pt.counts > 0) & (preselection.jet_pt.max() > 20)
+
+        #(20 < preselection.ll_mass) & (preselection.ll_mass < 85) & \ # removed from selection_mask
 
         same_sign = (preselection.prompt_mu.charge * preselection.second_mu.charge) >0.
         opp_sign = np.invert(same_sign)
@@ -375,7 +393,19 @@ class SkimPlot(processor.ProcessorABC):
                 weight = masked_df['weight'], sample = sample_name, 
                 dr = utils.tonp(masked_df.ll_dr)
             )
-
+            accumulator[category]['sv_lxy'   ].fill(
+                weight = masked_df['weight'], sample = sample_name,
+                lxy = utils.tonp(masked_df['goodsv']['lxy'])
+            )
+            accumulator[category]['sv_mass'   ].fill(
+                weight = masked_df['weight'], sample = sample_name,
+                mass = utils.tonp(masked_df.goodsv.p4.mass)
+            )
+            accumulator[category]['m1_vtx_mass'   ].fill(
+                weight = masked_df['weight'], sample = sample_name,
+                mass = utils.tonp(masked_df['m1_vtx_mass'])  
+            )
+            
             if category == 'preselection_SS' or category == 'preselection_OS':
 
                 accumulator[category]['sv_tM'].fill(
@@ -401,6 +431,8 @@ class SkimPlot(processor.ProcessorABC):
             if category.startswith('selection'):
                 # variables for CNN
                 accumulator['columns'][sample_name]['isOS'] += utils.tonp(masked_df['isOS'])
+                accumulator['columns'][sample_name]['pu_weight'] += utils.tonp(masked_df['weight'])
+                accumulator['columns'][sample_name]['m1_vtx_mass'] += utils.tonp(masked_df['m1_vtx_mass'])
                 accumulator['columns'][sample_name]['mu2_absdxy'] += utils.tonp(masked_df['second_mu']['absdxy'])
                 accumulator['columns'][sample_name]['mu2_absdz'] += utils.tonp(masked_df['second_mu']['absdz'])
                 accumulator['columns'][sample_name]['mu2_phi'] += utils.tonp(masked_df['second_mu'].p4.phi)
@@ -453,16 +485,12 @@ class SkimPlot(processor.ProcessorABC):
                 accumulator['columns'][sample_name]['mu2_tM'] += utils.tonp(masked_df['tmass_svmu'])
                 accumulator['columns'][sample_name]['corr_M'] += utils.tonp(masked_df['mass_corr'])
                 accumulator['columns'][sample_name]['dimu_deltaphi'] += utils.tonp(masked_df['dimu_deltaphi'])
+                accumulator['columns'][sample_name]['dimu_mass'] += utils.tonp(masked_df['ll_mass'])
+                accumulator['columns'][sample_name]['dimu_dr'] += utils.tonp(masked_df['ll_dr'])
                 accumulator['columns'][sample_name]['nLooseMu'] += utils.tonp(masked_df['nLooseMu'])
                 accumulator['columns'][sample_name]['nDisplacedMu'] += utils.tonp(masked_df['n_displaced_mu'])
 
-                #accumulator['columns'][sample_name][''] += utils.tonp(masked_df[''][''])
-                #accumulator['columns'][sample_name][''] += utils.tonp(masked_df[''][''])
-                #accumulator['columns'][sample_name][''] += utils.tonp(masked_df[''][''])
-                #accumulator['columns'][sample_name][''] += utils.tonp(masked_df[''][''])
-                #accumulator['columns'][sample_name][''] += utils.tonp(masked_df[''][''])
-                #accumulator['columns'][sample_name][''] += utils.tonp(masked_df[''][''])
-                #set_trace()
+                #######
                 accumulator['columns'][sample_name]['sv_tracks_charge'] += utils.tonp(masked_df['goodsv']['tracks_charge'])
                 accumulator['columns'][sample_name]['sv_tracks_eta'] += utils.tonp(masked_df['goodsv']['tracks_eta'] )
                 accumulator['columns'][sample_name]['sv_tracks_phi'] += utils.tonp(masked_df['goodsv']['tracks_phi'])

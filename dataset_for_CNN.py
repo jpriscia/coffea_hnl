@@ -154,42 +154,91 @@ from sklearn.model_selection import train_test_split
 #######
 x_train, x_test, y_train, y_test, m_train, m_test, w_train, w_test = train_test_split(data, labels, masks, xs_weights,  test_size=0.15, random_state=0)
 
-set_trace()
-#nn = Input(shape = data.shape[1:])
-#msk = Input(shape = masks.shape[1:])
-#conv = Conv1D(32,  1, activation='elu', padding='same', data_format='channels_last', name='conv1')(nn)
-#conv = Conv1D(32,  1, activation='elu', padding='same', data_format='channels_last', name='conv2')(conv)
-#conv = Conv1D(32,  1, activation='elu', padding='same', data_format='channels_last', name='conv3')(conv)
-#conv = Conv1D(32,  1, activation='elu', padding='same', data_format='channels_last', name='conv4')(conv)
-#masked_conv = conv * msk
-#summed = keras.backend.sum(masked_conv, axis = 1)
-#dense = Dense(64, activation='elu', name = 'dense1')(summed)
-#out = Dense(1, activation = 'sigmoid', name = 'out')(dense)
 
-#model = Model(inputs=(nn, msk), outputs=out)
-#optimizer = optimizers.Adamax(lr=0.002)
-#model.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=['accuracy'])
+def create_model(optimizer='', hidden_layers = [32, 32, 32],  l2_penalty = 0.1, dropout_rate = 0):
+    nn = Input(shape = data.shape[1:])
+    msk = Input(shape = masks.shape[1:])
 
+    for layers in hidden_layers:       
+        nn = Conv1D(layer,  1, activation='elu', padding='same', data_format='channels_last', kernel_regularizer = l2(l2_penalty),  name='conv1')(nn)
+
+    masked_conv = nn * msk
+    if dropout_rate:
+        masked_conv = Dropout(p = dropout_rate)(masked_conv)
+    summed = keras.backend.sum(masked_conv, axis = 1) #for each track I have an embendding 32dim. This sum the embeddings of different tracks
+    dense = Dense(64, activation='elu', name = 'dense1')(summed)
+    out = Dense(1, activation = 'sigmoid', name = 'out')(dense)
+    
+    model = Model(inputs=(nn, msk), outputs=out)
+    optimizer = optimizers.Adamax(lr=0.002)
+    model.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=['accuracy'])
+    
+    return model
 
 ######test mohammmed CNN######
-nn = Input(shape=(channels,img_size), name='input')
-conv = Conv1D(32,  3, activation='elu', padding='same', data_format='channels_last', name='conv1')(nn)
-conv = Conv1D(64,  3, activation='elu', padding='same', data_format='channels_last', name='conv3')(conv)
-conv = Conv1D(128, 3, activation='elu', padding='same', data_format='channels_last', name='conv5')(conv)
-conv = Conv1D(256, 3, activation='elu', padding='same', data_format='channels_last', name='conv7')(conv)
-dense = Dropout(0.25)(conv)
-conv = Conv1D(512, 3, activation='elu', padding='same', data_format='channels_last', name='conv8')(dense)
-flat = Flatten()(conv)
+#nn = Input(shape=(channels,img_size), name='input')
+#conv = Conv1D(32,  3, activation='elu', padding='same', data_format='channels_last', name='conv1')(nn)
+#conv = Conv1D(64,  3, activation='elu', padding='same', data_format='channels_last', name='conv3')(conv)
+#conv = Conv1D(128, 3, activation='elu', padding='same', data_format='channels_last', name='conv5')(conv)
+#conv = Conv1D(256, 3, activation='elu', padding='same', data_format='channels_last', name='conv7')(conv)
+#dense = Dropout(0.25)(conv)
+#conv = Conv1D(512, 3, activation='elu', padding='same', data_format='channels_last', name='conv8')(dense)
+#flat = Flatten()(conv)
 
-dense = Dense(256, activation='elu', name='dense2')(flat)
-dense = Dropout(0.5)(dense)
-pred = Dense(2, activation='softmax', name='output')(dense)
+#dense = Dense(256, activation='elu', name='dense2')(flat)
+#dense = Dropout(0.5)(dense)
+#pred = Dense(2, activation='softmax', name='output')(dense)
 
-model = Model(inputs=nn, outputs=pred)
-model.compile(loss='categorical_crossentropy', optimizer='Adamax', metrics=['accuracy'])
+#model = Model(inputs=nn, outputs=pred)
+#model.compile(loss='categorical_crossentropy', optimizer='Adamax', metrics=['accuracy'])
 ################
 
 early_stop = EarlyStopping(monitor='val_accuracy', min_delta=0.0001, patience=10, verbose=1, mode='auto')
+callbacks = [early_stop]
+
+#########################
+#setup for GridSearchCV
+######################
+# Wrap Keras model so it can be used by scikit-learn
+neural_network = KerasClassifier(build_fn=model, verbose=0)
+
+# Create hyperparameter space
+epochs = [20, 25, 30]
+batches = [50, 100, 150]
+optimizers = ['rmsprop', 'adam']
+
+# Create hyperparameter options
+hyperparameters = dict(optimizer=optimizers, epochs=epochs, batch_size=batches)
+
+
+dropout_rate_opts  = [0, 0.2, 0.5]
+hidden_layers_opts = [[64, 64, 64, 64], [32, 32, 32, 32, 32], [100, 100, 100]]
+l2_penalty_opts = [0.01, 0.1, 0.5]
+keras_param_options = {
+    'hidden_layers': hidden_layers_opts,
+    'dropout_rate': dropout_rate_opts,  
+    'l2_penalty': l2_penalty_opts
+}
+
+# Create grid search
+rs_keras = RandomizedSearchCV( 
+    model_keras, 
+    param_distributions = keras_param_options,
+    fit_params = keras_fit_params,
+    scoring = 'neg_log_loss',
+    n_iter = 3, 
+    cv = 3,
+    n_jobs = -1,
+    verbose = 1
+)
+
+rs_keras.fit(
+    (x_train, m_train),
+    y_train,
+    shuffle = True,
+    sample_weight = w_train
+)
+
 
 
 #history = model.fit(
@@ -204,29 +253,29 @@ early_stop = EarlyStopping(monitor='val_accuracy', min_delta=0.0001, patience=10
 #    )
 
 ######fit mohamed########
-history = model.fit(
-    (x_train),#, m_train),
-    keras.utils.to_categorical(y_train),
-    batch_size = 100,
-    epochs = 10,
-    callbacks = [early_stop],
-    validation_split = 0.1,
-    shuffle = True,
-    sample_weight = w_train,
-    )
+#history = model.fit(
+#    (x_train),#, m_train),
+#    keras.utils.to_categorical(y_train),
+#    batch_size = 100,
+#    epochs = 10,
+#    callbacks = [early_stop],
+#    validation_split = 0.1,
+#    shuffle = True,
+#    sample_weight = w_train,
+#    )
 
-scores = model.evaluate(x_test, keras.utils.to_categorical(y_test), verbose=1)
-print('Test loss:', scores[0])
-print('Test accuracy:', scores[1])
-y_pred = model.predict(x_test)
-true = np.argmax(keras.utils.to_categorical(y_test), axis=1)
-pred = np.argmax(y_pred, axis=1)
-print('True labels: ', true)
-print('Predicted labels: ', pred)
+#scores = model.evaluate(x_test, keras.utils.to_categorical(y_test), verbose=1)
+#print('Test loss:', scores[0])
+#print('Test accuracy:', scores[1])
+#y_pred = model.predict(x_test)
+#true = np.argmax(keras.utils.to_categorical(y_test), axis=1)
+#pred = np.argmax(y_pred, axis=1)
+#print('True labels: ', true)
+#print('Predicted labels: ', pred)
 
-cnf_matrix = confusion_matrix(true, pred)
-cnf_matrix = cnf_matrix.astype('float') / cnf_matrix.sum(axis=1)[:, np.newaxis]
-print (cnf_matrix)
+#cnf_matrix = confusion_matrix(true, pred)
+#cnf_matrix = cnf_matrix.astype('float') / cnf_matrix.sum(axis=1)[:, np.newaxis]
+#print (cnf_matrix)
 
 ##################
 

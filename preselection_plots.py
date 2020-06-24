@@ -63,10 +63,13 @@ plots = [
     ('diplaced_pt', r'p$_T$(sub-leading $\mu$) [GeV]'),
     ('di_mu_M'    , r'm($\mu\mu$) [GeV]'),
     ('di_mu_DR'   , r'$\Delta R(\mu\mu$)'),
-    ('sv_tM'      , r'sv_tm [GeV]'),
-    ('mu_tM'      , r'mu_tm [GeV]'),
-    ('musv_tM'    , r'musv_tm [GeV]'),
-    ('corr_M'     , r'corr_m [GeV]'),
+    ('sv_tM'      , r'sv tm [GeV]'),
+    ('mu_tM'      , r'$\mu$ tm [GeV]'),
+    ('musv_tM'    , r'$\mu$sv tm [GeV]'),
+    ('corr_M'     , r'corr m [GeV]'),
+    ('sv_lxy'     , r'l$_xy$ (sv) [cm]'),
+    ('sv_mass'    , r'm(sv) [GeV]'),  
+    ('m1_vtx_mass', r'm(pv) [GeV]'),
 ]
 
 def matches(lst, pat, excl = set()):
