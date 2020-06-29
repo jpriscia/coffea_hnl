@@ -3,9 +3,36 @@ import awkward as awk
 import numpy as np
 from pdb import set_trace
 import utils
+from glob import glob
+from coffea.util import load
 from sklearn import datasets, metrics, model_selection, svm
 from scikit_BDT_utils import *
 from scikit_Function import *
+from tensorflow.keras.regularizers import l2
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.wrappers.scikit_learn import KerasClassifier
+#from tensorflow.keras.layers.core import Dense, Dropout, Activation
+#from tensorflow.keras.layers.normalization import BatchNormalization
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import RandomizedSearchCV
+import matplotlib
+matplotlib.use('Agg')
+from matplotlib import pyplot as plt
+import matplotlib.image as mpimg
+
+import tensorflow as tf
+import tensorflow.keras as keras
+from tensorflow.keras.models import Model
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.layers import Input, Conv1D, Flatten, Dense, Dropout, Lambda
+from tensorflow.keras import optimizers
+
+from sklearn.metrics import confusion_matrix
+import itertools
+from sklearn.model_selection import train_test_split
+
+
 
 def zero_pad(jarr, msize):
     '''converts a jagged array into a 2D np.array, filling blanks with zeros
@@ -41,11 +68,22 @@ def zero_pad(jarr, msize):
 
 from argparse import ArgumentParser
 parser = ArgumentParser()
-parser.add_argument('jobid', default='2018_preskim', help='jobid to run on')
+parser.add_argument('jobid', default='2018_preskimV2', help='jobid to run on')
+parser.add_argument('-d', '--dropout_rate', type=float, default=0. , help='droput rate')
+parser.add_argument('-hl', '--hidden_layers', type=str, default='32,32,32',  help='neurons per layer')
+parser.add_argument('-l2', '--l2_penalty', type=float, default=0.1, help='l2 penalty')
+parser.add_argument('-e', '--epochs', type=int, default=5 , help='number of epochs')
+parser.add_argument('-b', '--batch_size', type=int, default=200, help='batch size')
+parser.add_argument('-o', '--optimizer', type=str, default='adam', help='optimizer')
 args = parser.parse_args()
 
-from glob import glob
-from coffea.util import load
+
+dir_name = '_'.join([str(args.dropout_rate), str(args.hidden_layers), str(args.l2_penalty), str(args.epochs), str(args.batch_size), str(args.optimizer), 'noES'])
+print (dir_name)
+
+from pathlib import Path
+Path(f"plots/{dir_name}").mkdir(parents=True, exist_ok=True)
+
 
 #load weights
 years = {
@@ -105,9 +143,6 @@ for ifile in infiles:
 
         )
 
-#bkgSumW = sum([x for x in xs_weights if x != 1.0])
-#nSigSamples = len([x for x in xs_weights if x == 1.0])
-#xs_weights = [bkgSumW/nSigSamples if x==1 else x for x in xs_weights]
 
 data = np.concatenate(data)
 labels = np.concatenate(labels)
@@ -130,139 +165,54 @@ xs_weights = xs_weights[rnd]
 
 masks = masks.reshape((-1, masks.shape[1], 1))
 
-# train the network
-import matplotlib
-matplotlib.use('Agg')
-from matplotlib import pyplot as plt
-import matplotlib.image as mpimg
 
-import tensorflow as tf
-import tensorflow.keras as keras
-from tensorflow.keras.models import Model
-from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.keras.layers import Input, Conv1D, Flatten, Dense, Dropout
-from tensorflow.keras import optimizers
-
-from sklearn.metrics import confusion_matrix 
-import itertools 
-from sklearn.model_selection import train_test_split
-
-####test mohammed CNN###
-#channels = 1
-#img_size = 160
-#data = data.reshape(-1,channels,img_size)
-#######
 x_train, x_test, y_train, y_test, m_train, m_test, w_train, w_test = train_test_split(data, labels, masks, xs_weights,  test_size=0.15, random_state=0)
 
 
-def create_model(optimizer='', hidden_layers = [32, 32, 32],  l2_penalty = 0.1, dropout_rate = 0):
-    nn = Input(shape = data.shape[1:])
-    msk = Input(shape = masks.shape[1:])
+###################
+####make model#####
+##################
 
-    for layers in hidden_layers:       
-        nn = Conv1D(layer,  1, activation='elu', padding='same', data_format='channels_last', kernel_regularizer = l2(l2_penalty),  name='conv1')(nn)
 
-    masked_conv = nn * msk
-    if dropout_rate:
-        masked_conv = Dropout(p = dropout_rate)(masked_conv)
-    summed = keras.backend.sum(masked_conv, axis = 1) #for each track I have an embendding 32dim. This sum the embeddings of different tracks
-    dense = Dense(64, activation='elu', name = 'dense1')(summed)
-    out = Dense(1, activation = 'sigmoid', name = 'out')(dense)
+nn = Input(shape = data.shape[1:])
+copy_nn = nn
+msk = Input(shape = masks.shape[1:])
+
+
+#for item in args.prune.split(','):
+
+hl = [int(item)for item in args.hidden_layers.split(',')]
+print (hl)
+for i,layer in enumerate(hl):
+    print ('layer')
+    nn = Conv1D(layer,  1, activation='elu', padding='same', data_format='channels_last', kernel_regularizer = l2(args.l2_penalty),  name='conv{0}'.format(i))(nn) #nn
+
+masked_conv = nn * msk
+if args.dropout_rate:
+    masked_conv = Dropout(args.dropout_rate)(nn)
+summed = keras.backend.sum(masked_conv, axis = 1) #for each track I have an embendding 32dim. This sum the embeddings of different tracks
+dense = Dense(64, activation='elu', name = 'dense1')(summed)
+out = Dense(1, activation = 'sigmoid', name = 'out')(dense)
     
-    model = Model(inputs=(nn, msk), outputs=out)
-    optimizer = optimizers.Adamax(lr=0.002)
-    model.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=['accuracy'])
-    
-    return model
+model = Model(inputs=(copy_nn, msk), outputs=out)
+model.compile(loss='binary_crossentropy', optimizer=args.optimizer, metrics=['accuracy'])
 
-######test mohammmed CNN######
-#nn = Input(shape=(channels,img_size), name='input')
-#conv = Conv1D(32,  3, activation='elu', padding='same', data_format='channels_last', name='conv1')(nn)
-#conv = Conv1D(64,  3, activation='elu', padding='same', data_format='channels_last', name='conv3')(conv)
-#conv = Conv1D(128, 3, activation='elu', padding='same', data_format='channels_last', name='conv5')(conv)
-#conv = Conv1D(256, 3, activation='elu', padding='same', data_format='channels_last', name='conv7')(conv)
-#dense = Dropout(0.25)(conv)
-#conv = Conv1D(512, 3, activation='elu', padding='same', data_format='channels_last', name='conv8')(dense)
-#flat = Flatten()(conv)
+early_stop = EarlyStopping(monitor='val_accuracy', min_delta=0.01, patience=10, verbose=0, mode='auto')
+#callbacks = [early_stop]
 
-#dense = Dense(256, activation='elu', name='dense2')(flat)
-#dense = Dropout(0.5)(dense)
-#pred = Dense(2, activation='softmax', name='output')(dense)
-
-#model = Model(inputs=nn, outputs=pred)
-#model.compile(loss='categorical_crossentropy', optimizer='Adamax', metrics=['accuracy'])
-################
-
-early_stop = EarlyStopping(monitor='val_accuracy', min_delta=0.0001, patience=10, verbose=1, mode='auto')
-callbacks = [early_stop]
-
-#########################
-#setup for GridSearchCV
-######################
-# Wrap Keras model so it can be used by scikit-learn
-neural_network = KerasClassifier(build_fn=model, verbose=0)
-
-# Create hyperparameter space
-epochs = [20, 25, 30]
-batches = [50, 100, 150]
-optimizers = ['rmsprop', 'adam']
-
-# Create hyperparameter options
-hyperparameters = dict(optimizer=optimizers, epochs=epochs, batch_size=batches)
-
-
-dropout_rate_opts  = [0, 0.2, 0.5]
-hidden_layers_opts = [[64, 64, 64, 64], [32, 32, 32, 32, 32], [100, 100, 100]]
-l2_penalty_opts = [0.01, 0.1, 0.5]
-keras_param_options = {
-    'hidden_layers': hidden_layers_opts,
-    'dropout_rate': dropout_rate_opts,  
-    'l2_penalty': l2_penalty_opts
-}
-
-# Create grid search
-rs_keras = RandomizedSearchCV( 
-    model_keras, 
-    param_distributions = keras_param_options,
-    fit_params = keras_fit_params,
-    scoring = 'neg_log_loss',
-    n_iter = 3, 
-    cv = 3,
-    n_jobs = -1,
-    verbose = 1
-)
-
-rs_keras.fit(
+history = model.fit(
     (x_train, m_train),
     y_train,
+    batch_size = args.batch_size,
+    epochs = args.epochs,
+    callbacks = [early_stop],
+    validation_split = 0.1,
     shuffle = True,
-    sample_weight = w_train
-)
+    verbose = 2,
+    sample_weight = w_train,
+    )
 
 
-
-#history = model.fit(
-#    (x_train, m_train),
-#    y_train,
-#    batch_size = 100,
-#    epochs = 30,
-#    callbacks = [early_stop],
-#    validation_split = 0.1,
-#    shuffle = True,
-#    sample_weight = w_train,
-#    )
-
-######fit mohamed########
-#history = model.fit(
-#    (x_train),#, m_train),
-#    keras.utils.to_categorical(y_train),
-#    batch_size = 100,
-#    epochs = 10,
-#    callbacks = [early_stop],
-#    validation_split = 0.1,
-#    shuffle = True,
-#    sample_weight = w_train,
-#    )
 
 #scores = model.evaluate(x_test, keras.utils.to_categorical(y_test), verbose=1)
 #print('Test loss:', scores[0])
@@ -279,7 +229,6 @@ rs_keras.fit(
 
 ##################
 
-set_trace()
 
 for name in ['loss', 'accuracy']:
     epochs = range(len(history.history[name]))
@@ -288,7 +237,7 @@ for name in ['loss', 'accuracy']:
     plt.plot(epochs, history.history[f'val_{name}'], label='Validation')
     plt.title(f'Training and validation {name}')
     plt.legend()
-    plt.savefig(f'plots/{args.jobid}/cnn_{name}.png')
+    plt.savefig(f'plots/{dir_name}/cnn_{name}.png')
 
 pred_test = model.predict((x_test, m_test))
 pred_train = model.predict((x_train, m_train))
@@ -309,15 +258,22 @@ plt.xlim([-0.05, 1.05])
 plt.ylim([-0.05, 1.05])
 plt.ylabel('True Positive Rate')
 plt.xlabel('False Positive Rate')
-plt.show()
 plt.grid()
-plt.savefig(f'plots/{args.jobid}/ROC.png')
+plt.savefig(f'plots/{dir_name}/ROC.png')
 
 idx_99 = np.argmin(abs(fpr-0.01))
 print(fpr[idx_99], tpr[idx_99])
 #compare Decision Functions
+
+#print all info
+f = open(f"plots/{dir_name}/info.txt", "w")
+f.writelines(['dropout_rate: '+str(args.dropout_rate), '\n hidden_layers: '+str(args.hidden_layers), '\n l2_penalty: '+str(args.l2_penalty), '\n epochs: '+str(args.epochs), '\n batch_size: '+str(args.batch_size), '\n optimizer: '+str(args.optimizer)])
+f.writelines(['\n fpr: '+str(fpr[idx_99]), '\n tpr: '+str(tpr[idx_99])])
+f.close()
+
+
 plt.figure()
 compare_train_test_dec(pred_train_Sig.flatten(), pred_train_Bkg.flatten(), pred_test_Sig.flatten(), pred_test_Bkg.flatten())
-plt.savefig(f'plots/{args.jobid}/OT.png')
-set_trace()
+plt.savefig(f'plots/{dir_name}/OT.png')
+
 

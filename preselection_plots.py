@@ -22,7 +22,7 @@ from collections import OrderedDict
 from pdb import set_trace
 
 parser = ArgumentParser()
-parser.add_argument('jobid', default='2018_preskim', help='jobid to run on')
+parser.add_argument('jobid', default='2018_preskimV2', help='jobid to run on')
 parser.add_argument('--isSig' , action='store_true', help='signal or mc/data')
 
 #parser.add_argument
@@ -67,7 +67,7 @@ plots = [
     ('mu_tM'      , r'$\mu$ tm [GeV]'),
     ('musv_tM'    , r'$\mu$sv tm [GeV]'),
     ('corr_M'     , r'corr m [GeV]'),
-    ('sv_lxy'     , r'l$_xy$ (sv) [cm]'),
+    ('sv_lxy'     , r'l$_{xy}$ (sv) [cm]'),
     ('sv_mass'    , r'm(sv) [GeV]'),  
     ('m1_vtx_mass', r'm(pv) [GeV]'),
 ]
@@ -103,10 +103,10 @@ for key, x_title in plots:
         mapping['mc_wjets'] = matches(samples, 'WJets*')
         mapping['mc_qcd'] = matches(samples, 'QCD*')
         mapping['data'] = matches(samples, 'Single*')
-        mapping['sig_M-10_V-0p0010'] = matches(samples,'M-10_V-0p0010*')
+        #mapping['sig_M-10_V-0p0010'] = matches(samples,'M-10_V-0p0010*')
         mapping['sig_M-2_V-0p015'] = matches(samples, 'M-2_V-0p015*')
-        mapping['sig_M-2_V-0p035'] = matches(samples, 'M-2_V-0p035*')
-        mapping['sig_M-4_V-0p0035'] = matches(samples, 'M-4_V-0p0035*')
+        #mapping['sig_M-2_V-0p035'] = matches(samples, 'M-2_V-0p035*')
+        #mapping['sig_M-4_V-0p0035'] = matches(samples, 'M-4_V-0p0035*')
         mapping['sig_M-4_V-0p010'] = matches(samples, 'M-4_V-0p010*' )
         mapping['sig_M-6_V-0p0028'] = matches(samples, 'M-6_V-0p0028*')
         mapping['sig_M-8_V-0p002'] = matches(samples, 'M-8_V-0p002*')
@@ -174,7 +174,7 @@ for key, x_title in plots:
         ax.set_ylim(0, None)
         ax.set_xlabel(None)
         ax.set_ylabel('Counts')
-        leg = ax.legend()
+        #leg = ax.legend()
        
         if not args.isSig:
 
